@@ -40,7 +40,7 @@ package main
 import (
 	"fmt"
 	"os"
-	"flags"
+	"flag"
 	"strings"
 	"strconv"
 	"bufio"
@@ -64,6 +64,17 @@ type astNode struct {
 	sourceCode string
 }
 
+type variableNode struct {
+	id int                // every var gets an unique ID 
+	sourceName string     // name in the source code
+	canName string        // cannonical name for Verilog 
+	varType string        // type of this variable
+	numDim   int          // number of dimension if an array
+	funcName  string      // where is the variable defined
+	scope  string         // what the scope in terms 
+}
+
+
 type argoListener struct {
 	*parser.BaseArgoListener
 	stack []int
@@ -71,7 +82,9 @@ type argoListener struct {
 	ProgramLines []string // the program as a list of strings, one string per line
 	node2ID map[interface{}]int //  a map of the AST node pointers to small integer ID mapping
 	nextID int
-	astNodeList []*astNode
+	astNodeList []*astNode        // root of an absract syntax tree 
+	varNodeList []*variableNode   // list of all variables in the program
+	varNodeNameMap map[string]*variableNode  // map of cannonical names to variable nodes 
 }
 
 // get a node ID in the AST tree 
@@ -94,17 +107,45 @@ func (l *argoListener) addASTnode(n *astNode) {
 	l.astNodeList = append(l.astNodeList,n) 
 }
 
+func (l *argoListener) addVarnode(v *variableNode) {
+	l.varNodeList = append(l.varNodeList,v) 
+}
 
-// print all the nodes
+// get the function node of a given AST node 
+func (l *argoListener) getFunctionDecl(n *astNode) *astNode {
 
+
+	return nil
+}
+	
+// get all the variables in an AST
+// We go linearly through all the nodes looking for declaration types
+// if we find one, we crawl the children to get the variable's name and type
+// we can also crawl backward to get the scope 
+func (l *argoListener) getAllVariables() int {
+
+	// the three type of declarations are: varDecl (var keyword), parameterDecls (in a function signature), and shortVarDecls (:=) 
+	for _, node := range l.astNodeList {
+		if (node.ruleType == "varDecl") {
+			// do simple var declaration
+			// create the cannonical name using the function name and local name 
+			// get the function name 
+			// go down through the children until we get to the identifier with the local names 
+		} else if (node.ruleType == "parameterDecl") {
+			// a parameter declaration 
+		} else if (node.ruleType == "shorVarDecl") {
+			// 
+		}
+	}
+	return 0 
+}
+	
+// print all the nodes. Can be in rawWithText mode, which includes the source code with each node, or
+// in dotShort mode, which is a graphViz format suitable for making graphs with the dot program 
 func (l *argoListener) printASTnodes(outputStyle string) {
 
 	var nodeStr string // name of the AST node 
 	
-	sort.Slice(l.astNodeList, func(i, j int) bool {
-		return l.astNodeList[i].id < l.astNodeList[j].id
-	})
-
 	if (outputStyle == "rawWithText") { 
 		for _, node := range l.astNodeList {
 			fmt.Printf("AST Nodes: %d: %s ::%s:: parent: %d children: ", node.id, node.ruleType, node.sourceCode, node.parentID )
@@ -147,6 +188,7 @@ func (l *argoListener) printASTnodes(outputStyle string) {
 	}
 }
 
+// recursive function to visit nodes in the Antlr4 graph 
 func VisitNode(l *argoListener,c antlr.Tree, parent *astNode,level int) astNode {
 	var progText string
 	var err error
@@ -194,7 +236,8 @@ func VisitNode(l *argoListener,c antlr.Tree, parent *astNode,level int) astNode 
 }
 
 
-// EnterStart tries to crawl the whole tree 
+// EnterStart creates the AST by crawling the whole tree
+// it leaves a list of AST nodes in the listener struct sorted by ID
 func (l *argoListener) EnterSourceFile(c *parser.SourceFileContext) {
 	var level int
 	var id int
@@ -213,7 +256,15 @@ func (l *argoListener) EnterSourceFile(c *parser.SourceFileContext) {
 		root.childIDs = append(root.childIDs, childNode.id)		
 		
 	}
+	// add the root back in 
 	l.addASTnode(&root)
+
+
+	// sort all the nodes by the nodeID
+	sort.Slice(l.astNodeList, func(i, j int) bool {
+		return l.astNodeList[i].id < l.astNodeList[j].id
+	})
+
 	
 }
 
@@ -298,7 +349,7 @@ func getFileLines(fname string) ([]string, error) {
 	
 	file, err := os.Open(fname)
 	if err != nil {
-		fmt.Printf("getFileLines Error at line \n")
+		fmt.Printf("getFileLines Error opening file %s\n",fname)
 		return nil,err 
 	}
 
@@ -329,26 +380,21 @@ func (l *argoListener) EnterImportClause(c *parser.ImportClauseContext) {
 }
 	
 
-
-// ProgramLines is a global variable that holds the text listing of the program
-// as a list of lines, where each line is a string
-
-
-
-// parseargo takes a string expression and returns the evaluated resuacklt.
-func parseargo(fname string) int {
+// parseArgo takes a string expression and returns the root node of the resulting AST
+func parseArgo(fname *string) *argoListener {
 
 	var err error
 	var listener argoListener
+
+	input, err := antlr.NewFileStream(*fname)
 	
-	input, _ := antlr.NewFileStream(fname)
 	lexer := parser.NewArgoLexer(input)
 	stream := antlr.NewCommonTokenStream(lexer,0)
 	
 	p := parser.NewArgoParser(stream)
 
 	listener.recog = p
-	progLines, err2 := getFileLines(os.Args[1])
+	progLines, err2 := getFileLines(*fname)
 	if (err2 != nil) {
 		fmt.Printf("Whoaa! didn't program lines")
 		
@@ -366,22 +412,23 @@ func parseargo(fname string) int {
 	antlr.ParseTreeWalkerDefault.Walk(&listener, p.SourceFile())
 	
 
-	//listener.printASTnodes("rawWithText")
-	listener.printASTnodes("dotShort")
-	
-	return 0
+	return &listener 
 }
 
 func main() {
-	var r int
-
+	var parsedProgram *argoListener 
+	var inputFileName_p *string
+	var printASTasGraphViz_p *bool
+	
 	printASTasGraphViz_p = flag.Bool("gv",false,"print AST in GraphViz format")
-	inputFileName_p = flag.String("i",input.go,"input file name")
+
+	inputFileName_p = flag.String("i","input.go","input file name")
 
 	flag.Parse()
-	r = parseargo(inputFileName)
-
+	parsedProgram = parseArgo(inputFileName_p)
+	
 	if (*printASTasGraphViz_p) {
-
+		//listener.printASTnodes("rawWithText")
+		parsedProgram.printASTnodes("dotShort")
 	}
 }
