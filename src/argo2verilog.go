@@ -1,10 +1,48 @@
+
+/* Argo to Verilog Compiler 
+
+    (c) Richard P. Martin and contributers 
+    
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License version 3 for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>
+
+*/
+
+
+/* Convert a program in the Argo programming language to a Verilog executable */
+
+/* Outline of the compiler 
+  (1) Create and go-based abstract syntax tree (AST) using Antlr4 
+  (2) use the AST to create a statement control flow graph (SCFG) 
+  (3) Use the SCFG to create a Basic-Block CFG (BBCFG)
+  (4) Optimize the BBCFG using data-flow analysis to increase parallelism 
+  (5) Use the BBCFG to output the Verilog sections:
+     
+  A   Variable section --- creates all the variables 
+  B   Channel section --- creates  all the channels. Each channel is a FIFO
+  C   Map section --- create all the associate arrays. Each map is a CAM
+  D   Variable control --- always block to control writes to each variable
+  E   Control flow --- bit-vectors for control flow for each function 
+
+*/
+
 package main
 
 import (
-	"strings"
-	"strconv"
 	"fmt"
 	"os"
+	"flags"
+	"strings"
+	"strconv"
 	"bufio"
 	"errors"
 	"sort"
@@ -58,6 +96,7 @@ func (l *argoListener) addASTnode(n *astNode) {
 
 
 // print all the nodes
+
 func (l *argoListener) printASTnodes(outputStyle string) {
 
 	var nodeStr string // name of the AST node 
@@ -335,9 +374,14 @@ func parseargo(fname string) int {
 
 func main() {
 	var r int
-	
-	r = parseargo(os.Args[1])
-	fmt.Printf(" results: %d",r)
 
-	
+	printASTasGraphViz_p = flag.Bool("gv",false,"print AST in GraphViz format")
+	inputFileName_p = flag.String("i",input.go,"input file name")
+
+	flag.Parse()
+	r = parseargo(inputFileName)
+
+	if (*printASTasGraphViz_p) {
+
+	}
 }
