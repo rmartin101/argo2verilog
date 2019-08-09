@@ -82,7 +82,8 @@ type argoListener struct {
 	ProgramLines []string // the program as a list of strings, one string per line
 	node2ID map[interface{}]int //  a map of the AST node pointers to small integer ID mapping
 	nextID int
-	astNodeList []*astNode        // root of an absract syntax tree 
+	root *astNode                 // root of an absract syntax tree 
+	astNodeList []*astNode        // list of nodes of an absract syntax tree, root has id = 0 
 	varNodeList []*variableNode   // list of all variables in the program
 	varNodeNameMap map[string]*variableNode  // map of cannonical names to variable nodes 
 }
@@ -111,10 +112,21 @@ func (l *argoListener) addVarnode(v *variableNode) {
 	l.varNodeList = append(l.varNodeList,v) 
 }
 
-// get the function node of a given AST node 
+// get the function node of a given AST node
+// assumes we have to back-up towards the root node 
 func (l *argoListener) getFunctionDecl(n *astNode) *astNode {
+	var foundit bool
+	var parent *astNode
+	
+	foundit = false
+	parent = n.parent
+	for (parent != l.root ) && (foundit == false) { 
+		if (parent.ruleType == "functionDecl") {
+			return parent 
+		}
+	}
 
-
+	fmt.Printf("functionDecl for node %d:%s not found \n", n.id, n.ruleType)
 	return nil
 }
 	
@@ -123,19 +135,40 @@ func (l *argoListener) getFunctionDecl(n *astNode) *astNode {
 // if we find one, we crawl the children to get the variable's name and type
 // we can also crawl backward to get the scope 
 func (l *argoListener) getAllVariables() int {
+	var funcDecl,funcName *astNode  // AST node of the function and function name 
+	// the three type of declarations are: varDecl (var keyword), parameterDecls (in a function signature), and shortVarDecls (:=)
+	funcDecl = nil
 
-	// the three type of declarations are: varDecl (var keyword), parameterDecls (in a function signature), and shortVarDecls (:=) 
+	// for every AST node, see if it is a declaration
+	// if so, name the variable the _function_name_name
+	// for multiple instances of go functions, add the instance number 
 	for _, node := range l.astNodeList {
+		
+		// find the enclosing function name 
+		if (node.ruleType == "varDecl") || (node.ruleType == "parameterDecl") || (node.ruleType == "shorVarDecl") {
+			funcDecl = l.getFunctionDecl(node)
+			funcName = nil
+			if len(funcDecl.children) > 1 {
+				funcName = funcDecl.children[1]
+			} else {
+				fmt.Printf("Can't find enclosing child node for funcDecl %d:%s \n", funcDecl.id,funcDecl.sourceCode)
+			}
+			
+		}
+		// now get the name and type of the actual declaration.
+		// getting both the name and type depends on the kind of declaration it is 
 		if (node.ruleType == "varDecl") {
 			// do simple var declaration
 			// create the cannonical name using the function name and local name 
 			// get the function name 
-			// go down through the children until we get to the identifier with the local names 
+			// go down through the children until we get to the identifier with the local names
 		} else if (node.ruleType == "parameterDecl") {
 			// a parameter declaration 
 		} else if (node.ruleType == "shorVarDecl") {
 			// 
 		}
+
+
 	}
 	return 0 
 }
@@ -247,6 +280,8 @@ func (l *argoListener) EnterSourceFile(c *parser.SourceFileContext) {
 
 	// get the root AST node
 	root := astNode{ id : id, parentID : 0, parent : nil , ruleType: "SourceFile", sourceCode : "WholeProgramText" } 
+
+
 	
 	for i := 0; i < c.GetChildCount(); i++ {
 		child := c.GetChild(i)
@@ -256,11 +291,11 @@ func (l *argoListener) EnterSourceFile(c *parser.SourceFileContext) {
 		root.childIDs = append(root.childIDs, childNode.id)		
 		
 	}
-	// add the root back in 
+	// add the root back in
+	l.root = &root
 	l.addASTnode(&root)
 
-
-	// sort all the nodes by the nodeID
+	// sort all the nodes by nodeID in the list of nodes 
 	sort.Slice(l.astNodeList, func(i, j int) bool {
 		return l.astNodeList[i].id < l.astNodeList[j].id
 	})
