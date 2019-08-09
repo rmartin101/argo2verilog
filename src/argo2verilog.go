@@ -1,7 +1,6 @@
-
 /* Argo to Verilog Compiler 
 
-    (c) Richard P. Martin and contributers 
+    (c) 2019, Richard P. Martin and contributers 
     
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -10,11 +9,10 @@
 
     This program is distributed WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License version 3 for more details.
+    GNU General Public License Version 3 for more details.
 
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>
-
 */
 
 
@@ -29,10 +27,9 @@
      
   A   Variable section --- creates all the variables 
   B   Channel section --- creates  all the channels. Each channel is a FIFO
-  C   Map section --- create all the associate arrays. Each map is a CAM
-  D   Variable control --- always block to control writes to each variable
-  E   Control flow --- bit-vectors for control flow for each function 
-
+  C   Map section --- create all the associative arrays. Each map is a verilog CAM
+  D   Variable control --- 1 always block to control writes to each variable
+  E   Control flow --- bit-vectors for control flow for each function. Each bit controls 1 basic block.  
 */
 
 package main
@@ -45,12 +42,35 @@ import (
 	"strconv"
 	"bufio"
 	"errors"
+	"runtime"
 	"sort"
 	// "bytes"
 	"./parser"
 	"github.com/antlr/antlr4/runtime/Go/antlr"
 )
 
+// housekeeping debugging functions
+// use a simple assert with the line number to crash out with a stack trace 
+// an assertion fails.
+
+
+func assert(test bool, message string, location string, stackTrace bool) {
+	fmt.Printf("Assertion failed at %s : cause: %s \n", location, message)
+	if (stackTrace) {
+		panic(message)
+	}
+}
+// get the file name and line number of the file 
+func _file_line_() string {
+    _, fileName, fileLine, ok := runtime.Caller(1)
+    var s string
+    if ok {
+        s = fmt.Sprintf("%s:%d", fileName, fileLine)
+    } else {
+        s = ""
+    }
+    return s
+}
 
 // This is the representation of the AST we use 
 type astNode struct {
@@ -112,33 +132,56 @@ func (l *argoListener) addVarnode(v *variableNode) {
 	l.varNodeList = append(l.varNodeList,v) 
 }
 
-// get the function node of a given AST node
-// assumes we have to back-up towards the root node 
-func (l *argoListener) getFunctionDecl(n *astNode) *astNode {
+// Walk up the parents of the AST until we find a matching rule 
+// assumes we have to back-up towards the root node
+// Returns the first matching node 
+func (l *argoListener) walkUpToRule(n *astNode,ruleType string) *astNode {
 	var foundit bool
 	var parent *astNode
 	
 	foundit = false
 	parent = n.parent
 	for (parent != l.root ) && (foundit == false) { 
-		if (parent.ruleType == "functionDecl") {
+		if (parent.ruleType == ruleType) {
 			return parent 
 		}
 	}
 
-	fmt.Printf("functionDecl for node %d:%s not found \n", n.id, n.ruleType)
+	fmt.Printf("Rule type %s for parents of node %d:%s not found \n", ruleType, n.id, n.ruleType,)
 	return nil
 }
+
+
+// Walk down the AST until we find a matching rule. Use BFS order
+// Returns the first matching node 
+func (l *argoListener) walkDownToRule(n *astNode,ruleType string) *astNode {
+	var foundit bool
+	var parent *astNode
 	
+	foundit = false
+	parent = n.parent
+	for (parent != l.root ) && (foundit == false) { 
+		if (parent.ruleType == ruleType) {
+			return parent 
+		}
+	}
+
+	fmt.Printf("Rule type %s for parents of node %d:%s not found \n", ruleType, n.id, n.ruleType,)
+	return nil
+}
+
 // get all the variables in an AST
 // We go linearly through all the nodes looking for declaration types
 // if we find one, we crawl the children to get the variable's name and type
+// Each variable gets a canonical name which is the function name appended with the variable name  
 // we can also crawl backward to get the scope 
 func (l *argoListener) getAllVariables() int {
-	var funcDecl,funcName *astNode  // AST node of the function and function name 
+
+	var funcDecl, identifierList, r_type, funcName *astNode  // AST node of the function and function name 
 	// the three type of declarations are: varDecl (var keyword), parameterDecls (in a function signature), and shortVarDecls (:=)
 	funcDecl = nil
-
+	funcName = nil
+	
 	// for every AST node, see if it is a declaration
 	// if so, name the variable the _function_name_name
 	// for multiple instances of go functions, add the instance number 
@@ -146,28 +189,28 @@ func (l *argoListener) getAllVariables() int {
 		
 		// find the enclosing function name 
 		if (node.ruleType == "varDecl") || (node.ruleType == "parameterDecl") || (node.ruleType == "shorVarDecl") {
-			funcDecl = l.getFunctionDecl(node)
-			funcName = nil
-			if len(funcDecl.children) > 1 {
-				funcName = funcDecl.children[1]
-			} else {
-				fmt.Printf("Can't find enclosing child node for funcDecl %d:%s \n", funcDecl.id,funcDecl.sourceCode)
+			funcDecl = l.walkUpToRule(node,"functionDecl")
+			if (len(funcDecl.children) < 2) {  // need assertions here 
+				fmt.Printf("Major Error")
 			}
-			
+			funcName = funcDecl.children[1]
+			// now get the name and type of the actual declaration.
+			// getting both the name and type depends on the kind of declaration it is 
+			if (node.ruleType == "varDecl") {
+				// find the list of identifiers for this "var" rule 
+				identifierList = l.walkDownToRule(node,"identifierList")
+				// create a new variable for all the children of this rule
+				
+				// get the type for the children 
+				
+			} else if (node.ruleType == "parameterDecl") {
+				// a parameter declaration 
+			} else if (node.ruleType == "shorVarDecl") {
+				// short variable declaration 
+			} else {
+				fmt.Printf("Major Error\n ")
+			}
 		}
-		// now get the name and type of the actual declaration.
-		// getting both the name and type depends on the kind of declaration it is 
-		if (node.ruleType == "varDecl") {
-			// do simple var declaration
-			// create the cannonical name using the function name and local name 
-			// get the function name 
-			// go down through the children until we get to the identifier with the local names
-		} else if (node.ruleType == "parameterDecl") {
-			// a parameter declaration 
-		} else if (node.ruleType == "shorVarDecl") {
-			// 
-		}
-
 
 	}
 	return 0 
