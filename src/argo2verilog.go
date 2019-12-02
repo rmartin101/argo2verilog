@@ -74,24 +74,29 @@ func _file_line_() string {
 
 // This is the representation of the AST we use 
 type astNode struct {
-	id int 
-	ruleType string
-	isTerminal bool
-	parentID int
-	parent *astNode
-	childIDs []int
-	children []*astNode
-	sourceCode string
+	id int                // integer ID 
+	ruleType string       // the type of the rule from the Argo.g4 definition
+	isTerminal bool       // is a terminal node 
+	parentID int          // parent integer ID
+	parent *astNode       // pointer to the parent 
+	childIDs []int        // list of children node IDs
+	children []*astNode   // list of pointers to child nodes 
+	sourceCode string     // the source code as a string
+	sourceLineStart int     // start line in the source code
+	sourceColStart  int     // start column in the source code
+	sourceLineEnd   int     // ending line in the source code
+	sourceColEnd   int     // ending column in the source code
 }
 
 type variableNode struct {
-	id int                // every var gets an unique ID 
+	id int                // every var gets an unique ID
+	astDef     *astNode   // link to the astNode parent node
+	astDefNum  int        // ID of the astNode parent definition 
 	sourceName string     // name in the source code
-	canName string        // cannonical name for Verilog 
 	varType string        // type of this variable
+	canName string        // cannonical name for Verilog: package_row_col_func_name
 	numDim   int          // number of dimension if an array
 	funcName  string      // where is the variable defined
-	scope  string         // what the scope in terms 
 }
 
 
@@ -141,10 +146,13 @@ func (l *argoListener) walkUpToRule(n *astNode,ruleType string) *astNode {
 	
 	foundit = false
 	parent = n.parent
+	fmt.Printf("walkUpToRule Called rule: %s\n",ruleType)
 	for (parent != l.root ) && (foundit == false) { 
 		if (parent.ruleType == ruleType) {
+			fmt.Printf("walkUpToRule found match %s\n",ruleType)
 			return parent 
 		}
+		parent = parent.parent 
 	}
 
 	fmt.Printf("Rule type %s for parents of node %d:%s not found \n", ruleType, n.id, n.ruleType,)
@@ -154,19 +162,29 @@ func (l *argoListener) walkUpToRule(n *astNode,ruleType string) *astNode {
 
 // Walk down the AST until we find a matching rule. Use BFS order
 // Returns the first matching node 
-func (l *argoListener) walkDownToRule(n *astNode,ruleType string) *astNode {
-	var foundit bool
-	var parent *astNode
+func (l *argoListener) walkDownToRule(node *astNode,ruleType string) *astNode {
+	//var foundit bool
+	//var child *astNode
+	//foundit = false
+
+	var matched *astNode
 	
-	foundit = false
-	parent = n.parent
-	for (parent != l.root ) && (foundit == false) { 
-		if (parent.ruleType == ruleType) {
-			return parent 
+	fmt.Printf("walkDownToRule Called rule: %s\n",ruleType)
+
+	if (node == nil) {
+		return nil
+	}
+	
+	if (node.ruleType == ruleType) {
+		return node 
+	}
+	
+	for _, childNode := range node.children {
+		matched = l.walkDownToRule(childNode,ruleType)
+		if (matched != nil) {
+			return childNode  // return the first match 
 		}
 	}
-
-	fmt.Printf("Rule type %s for parents of node %d:%s not found \n", ruleType, n.id, n.ruleType,)
 	return nil
 }
 
@@ -174,26 +192,39 @@ func (l *argoListener) walkDownToRule(n *astNode,ruleType string) *astNode {
 // We go linearly through all the nodes looking for declaration types
 // if we find one, we crawl the children to get the variable's name and type
 // Each variable gets a canonical name which is the function name appended with the variable name  
-// we can also crawl backward to get the scope 
+// we can also crawl backward to get the scope
+
+// Get a vardecl
+// walk down to the ID list to get the names 
+// walk down to r_type to get the type.
+// add to the list of variables
+
 func (l *argoListener) getAllVariables() int {
 
-	var funcDecl, identifierList, r_type, funcName *astNode  // AST node of the function and function name 
+	var funcDecl *astNode
+	var identifierList *astNode
+	var funcName *astNode  // AST node of the function and function name 
 	// the three type of declarations are: varDecl (var keyword), parameterDecls (in a function signature), and shortVarDecls (:=)
 	funcDecl = nil
 	funcName = nil
+	identifierList = nil 
+
+	fmt.Printf("getAllVariables called\n")
 	
 	// for every AST node, see if it is a declaration
 	// if so, name the variable the _function_name_name
 	// for multiple instances of go functions, add the instance number 
 	for _, node := range l.astNodeList {
-		
 		// find the enclosing function name 
 		if (node.ruleType == "varDecl") || (node.ruleType == "parameterDecl") || (node.ruleType == "shorVarDecl") {
+
+
 			funcDecl = l.walkUpToRule(node,"functionDecl")
 			if (len(funcDecl.children) < 2) {  // need assertions here 
 				fmt.Printf("Major Error")
 			}
 			funcName = funcDecl.children[1]
+			fmt.Printf("found variable in func:%s clause: %s\n",funcName.sourceCode,node.ruleType)		
 			// now get the name and type of the actual declaration.
 			// getting both the name and type depends on the kind of declaration it is 
 			if (node.ruleType == "varDecl") {
@@ -213,7 +244,14 @@ func (l *argoListener) getAllVariables() int {
 		}
 
 	}
-	return 0 
+	if (funcName == nil) {
+		return 0
+	}
+	if (identifierList == nil) {
+		return 0 
+	}
+	return 1
+	
 }
 	
 // print all the nodes. Can be in rawWithText mode, which includes the source code with each node, or
@@ -224,7 +262,7 @@ func (l *argoListener) printASTnodes(outputStyle string) {
 	
 	if (outputStyle == "rawWithText") { 
 		for _, node := range l.astNodeList {
-			fmt.Printf("AST Nodes: %d: %s ::%s:: parent: %d children: ", node.id, node.ruleType, node.sourceCode, node.parentID )
+			fmt.Printf("AST Nodes: %d: %s ::%s:: /%d/%d/%d/%d/ parent: %d children: ", node.id, node.ruleType, node.sourceCode, node.sourceLineStart, node.sourceColStart, node.sourceLineEnd, node.sourceColEnd, node.parentID )
 			for _, childID := range node.childIDs {
 				fmt.Printf("%d ",childID)
 			}
@@ -270,6 +308,9 @@ func VisitNode(l *argoListener,c antlr.Tree, parent *astNode,level int) astNode 
 	var err error
 	var id int 
 	var isTerminalNode bool
+	var startline, startcol,stopline, stopcol int 
+
+	startline =0; startcol =0; stopline=0; stopcol =0;
 	
 	mylevel := level + 1
 	id = l.getID(c)
@@ -285,10 +326,10 @@ func VisitNode(l *argoListener,c antlr.Tree, parent *astNode,level int) astNode 
 	if ok2 {
 		start := t3.GetStart()
 		stop := t3.GetStop()
-		startline := start.GetLine()
-		startcol := start.GetColumn()
-		stopline := stop.GetLine()
-		stopcol := stop.GetColumn()
+		startline = start.GetLine()
+		startcol = start.GetColumn()
+		stopline = stop.GetLine()
+		stopcol = stop.GetColumn()
 		progText,err = rowscols2String(l.ProgramLines,startline,startcol,stopline,stopcol)
 		if (err != nil) {
 			//fmt.Printf("RowCols error on program text %s %d:%d to %d:%d ",err,startline,startcol,stopline,stopcol)
@@ -298,7 +339,7 @@ func VisitNode(l *argoListener,c antlr.Tree, parent *astNode,level int) astNode 
 	
 	ruleName := antlr.TreesGetNodeText(c,nil,l.recog)
 
-	thisNode := astNode{id : id , ruleType : ruleName, parentID: parent.id, parent: parent, sourceCode: progText , isTerminal : isTerminalNode}
+	thisNode := astNode{id : id , ruleType : ruleName, parentID: parent.id, parent: parent, sourceCode: progText , isTerminal : isTerminalNode, sourceLineStart: startline, sourceColStart : startcol, sourceLineEnd : stopline, sourceColEnd : stopcol }
 
 	for i := 0; i < c.GetChildCount(); i++ {
 		child := c.GetChild(i)
@@ -365,8 +406,8 @@ func rowscols2String (lineArray []string, startline,startcol,endline,endcol int)
 	}
 
 	// for each row, grab the text
-	// Not that rows in the Go array start a zero
-	// but in the compiler text number start at 1
+	// Note that rows in the Go array start a zero
+	// but in the compiler text numbers start at 1
 	// columns start a zero
 	for row = startline-1; row <= endline-1; row ++ {
 
@@ -497,16 +538,18 @@ func main() {
 	var parsedProgram *argoListener 
 	var inputFileName_p *string
 	var printASTasGraphViz_p *bool
-	
+
 	printASTasGraphViz_p = flag.Bool("gv",false,"print AST in GraphViz format")
 
 	inputFileName_p = flag.String("i","input.go","input file name")
 
 	flag.Parse()
 	parsedProgram = parseArgo(inputFileName_p)
-	
+	parsedProgram.getAllVariables() 
 	if (*printASTasGraphViz_p) {
-		//listener.printASTnodes("rawWithText")
-		parsedProgram.printASTnodes("dotShort")
+		parsedProgram.printASTnodes("rawWithText")
+		//parsedProgram.printASTnodes("dotShort")
 	}
+
+	
 }

@@ -9,7 +9,10 @@ all: argo2verilog.go
 install: argo2verilog 
 	cp argo2verilog ../bin
 
-.PHONY: clean
+.PHONY: clean run
 
 clean:
 	rm argo2verilog	
+
+run:
+	./argo2verilog -gv -i ../test/channel01.go

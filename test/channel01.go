@@ -2,13 +2,11 @@ package main ;
 
 import ( "fmt" ) ;
 
-
-func fubar(done chan int) {
-	var i int ; 
-	var k int ; 
+func fubar(done chan int, z int) {
+	var i,k int ; 
 
 	i = 1 ; 
-	k = i + 0 ; 
+	k = i + z ; 
 	done <- k ; 
 }; 
 
@@ -28,7 +26,7 @@ func main() {
 	i = 1   ;
 	j = m2[2];
 	k = i + j ;
-	go fubar(doneThis) ; 
+	go fubar(doneThis,k) ; 
 
 	
 	if  k > (2+dead+l)  { 
@@ -38,7 +36,8 @@ func main() {
 	} ;
 
 	for i = 1; i< dead; i = i +1 {
-		l = i + i ; 
+		l = i + i ;
+		k = i + k;
 	}; 
 
 	dead = <- doneThis; 
