@@ -78,8 +78,8 @@ type astNode struct {
 	ruleType string       // the type of the rule from the Argo.g4 definition
 	isTerminal bool       // is a terminal node 
 	parentID int          // parent integer ID
+	childIDs []int        // list of child interger IDs 
 	parent *astNode       // pointer to the parent 
-	childIDs []int        // list of children node IDs
 	children []*astNode   // list of pointers to child nodes 
 	sourceCode string     // the source code as a string
 	sourceLineStart int     // start line in the source code
@@ -169,20 +169,24 @@ func (l *argoListener) walkDownToRule(node *astNode,ruleType string) *astNode {
 
 	var matched *astNode
 	
-	fmt.Printf("walkDownToRule Called rule: %s\n",ruleType)
+	fmt.Printf("walkDownToRule Called rule: %s node: ",ruleType)
 
 	if (node == nil) {
+		fmt.Printf("nil \n")
 		return nil
 	}
-	
+
+	fmt.Printf("%d\n", node.id)
 	if (node.ruleType == ruleType) {
-		return node 
+		fmt.Printf("walkdowntorule returning %d \n", node.id)
+		return node
 	}
 	
 	for _, childNode := range node.children {
 		matched = l.walkDownToRule(childNode,ruleType)
 		if (matched != nil) {
-			return childNode  // return the first match 
+			fmt.Printf("walkdowntorule returning child %d\n", matched.id)
+			return matched  // return the first match
 		}
 	}
 	return nil
@@ -202,20 +206,30 @@ func (l *argoListener) walkDownToRule(node *astNode,ruleType string) *astNode {
 func (l *argoListener) getAllVariables() int {
 
 	var funcDecl *astNode
-	var identifierList *astNode
+	var identifierList,identifierR_type,identifierType *astNode
 	var funcName *astNode  // AST node of the function and function name 
 	// the three type of declarations are: varDecl (var keyword), parameterDecls (in a function signature), and shortVarDecls (:=)
+
+	var varNameList []string
+	var varTypeName string
+	var arrayTypeNode, arrayLenNode,channelTypeNode *astNode // if the variables are this type
+	
 	funcDecl = nil
 	funcName = nil
-	identifierList = nil 
-
+	identifierList = nil
+	identifierType = nil
+	varTypeName = ""
+	varNameList = make([] string, 1)
+	arrayTypeNode = nil
+	channelTypeNode = nil
+	
 	fmt.Printf("getAllVariables called\n")
 	
 	// for every AST node, see if it is a declaration
 	// if so, name the variable the _function_name_name
 	// for multiple instances of go functions, add the instance number 
 	for _, node := range l.astNodeList {
-		// find the enclosing function name 
+		// find the enclosing function name
 		if (node.ruleType == "varDecl") || (node.ruleType == "parameterDecl") || (node.ruleType == "shorVarDecl") {
 
 
@@ -224,18 +238,57 @@ func (l *argoListener) getAllVariables() int {
 				fmt.Printf("Major Error")
 			}
 			funcName = funcDecl.children[1]
-			fmt.Printf("found variable in func:%s clause: %s\n",funcName.sourceCode,node.ruleType)		
 			// now get the name and type of the actual declaration.
 			// getting both the name and type depends on the kind of declaration it is 
-			if (node.ruleType == "varDecl") {
-				// find the list of identifiers for this "var" rule 
+			if ( (node.ruleType == "varDecl") || (node.ruleType== "parameterDecl"))  {
+				varNameList = nil
+				// find the list of identifiers as strings for these rules
 				identifierList = l.walkDownToRule(node,"identifierList")
-				// create a new variable for all the children of this rule
+				// get the type for this Decl rule 
+				identifierR_type = l.walkDownToRule(node,"r_type")
+				identifierType = identifierR_type.children[0]
+				// Sometimes the grammar leaves the typeName in, need
+				// to fix this to make it consistent 
+				if (identifierType.ruleType == "typeName")  {
+					identifierType = identifierType.children[0]
+				}
+
+				if (identifierType.ruleType == "typeLit")  {
+					arrayTypeNode = l.walkDownToRule(node,"arrayType")
+					if (arrayTypeNode != nil) {
+						arrayLenNode = l.walkDownToRule(node,"basicLit")
+						arrayLenNode = arrayLenNode.children[0]
+					} else {
+						channelTypeNode = l.walkDownToRule(node,"channelType")
+						if (channelTypeNode != nil) {
+							identifierR_type = l.walkDownToRule(identifierType,"r_type")
+							identifierType = identifierR_type.children[0]
+						}
+					}
+
+					
+				}
 				
-				// get the type for the children 
+				varTypeName = identifierType.ruleType
+				// create list of variable for all the children of this Decl rule 
+				for _, child := range identifierList.children {
+					if (child.ruleType != ","){
+						varNameList = append(varNameList,child.ruleType)
+
+					}
+
+				}
+
+
 				
-			} else if (node.ruleType == "parameterDecl") {
-				// a parameter declaration 
+				for _, varName := range varNameList {
+					fmt.Printf("found variable in func %s name: %s type: %s \n",funcName.sourceCode,varName,varTypeName)
+				}
+				
+				// Given the function name, type and variable names in the list
+				// create a new variable node 
+					
+				
 			} else if (node.ruleType == "shorVarDecl") {
 				// short variable declaration 
 			} else {
@@ -262,7 +315,7 @@ func (l *argoListener) printASTnodes(outputStyle string) {
 	
 	if (outputStyle == "rawWithText") { 
 		for _, node := range l.astNodeList {
-			fmt.Printf("AST Nodes: %d: %s ::%s:: /%d/%d/%d/%d/ parent: %d children: ", node.id, node.ruleType, node.sourceCode, node.sourceLineStart, node.sourceColStart, node.sourceLineEnd, node.sourceColEnd, node.parentID )
+			fmt.Printf("AST Nodes: %d: %s ::%s:: @(%d,%d),(%d,%d) parent: %d children: ", node.id, node.ruleType, node.sourceCode, node.sourceLineStart, node.sourceColStart, node.sourceLineEnd, node.sourceColEnd, node.parentID )
 			for _, childID := range node.childIDs {
 				fmt.Printf("%d ",childID)
 			}

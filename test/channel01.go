@@ -13,13 +13,18 @@ func fubar(done chan int, z int) {
 func main() {
 	var i,dead,l int ;
 	var j int;
-	var k int; 
+	var k int;
+	var m1 [55]int;
+	
 	doneThis := make(chan int, 1) ;
-
 	m2 := make(map[int] int);
+	
+	m1[0] = 1;
+	m2[1] = 2;	
 
-	m2[2] = 102;
-	m2[3] = 103;
+
+	m2[2] = 102 + m1[0];
+	m2[3] = 103 + m2[0];
 	
 	dead = 3 ;
 	l = dead;

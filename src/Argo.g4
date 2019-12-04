@@ -126,6 +126,7 @@ emptyStmt
 r_type
     : 'integer'
     | 'int'
+    | 'uint'
     | 'float'
     | 'char'
     | 'short'
