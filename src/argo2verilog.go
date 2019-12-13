@@ -105,8 +105,11 @@ type argoListener struct {
 	stack []int
 	recog antlr.Parser
 	ProgramLines []string // the program as a list of strings, one string per line
-	node2ID map[interface{}]int //  a map of the AST node pointers to small integer ID mapping
-	nextID int
+	astNode2ID map[interface{}]int //  a map of the AST node pointers to small integer ID mapping
+	nextAstID int                 // IDs for the AST nodes 
+	nextVarID int                 // IDs for the Var nodes
+	nextStatementID int           // IDs for the statement nodes
+	nextBBlockID int              // IDs for the basic Blocks 
 	root *astNode                 // root of an absract syntax tree 
 	astNodeList []*astNode        // list of nodes of an absract syntax tree, root has id = 0 
 	varNodeList []*variableNode   // list of all variables in the program
@@ -114,17 +117,17 @@ type argoListener struct {
 }
 
 // get a node ID in the AST tree 
-func (l *argoListener) getID(c antlr.Tree) int {
+func (l *argoListener) getAstID(c antlr.Tree) int {
 
 	// if the entry is in the table, return the integer ID
-	if val, ok := l.node2ID[c] ; ok {
+	if val, ok := l.astNode2ID[c] ; ok {
 		return val 
 	}
 
 	// create a new entry and return it 
-	l.node2ID[c] = l.nextID
-	l.nextID = l.nextID + 1
-	return 	l.node2ID[c]
+	l.astNode2ID[c] = l.nextAstID
+	l.nextAstID = l.nextAstID + 1
+	return 	l.astNode2ID[c]
 }
 
 // add a node to the list of all nodes
@@ -146,10 +149,10 @@ func (l *argoListener) walkUpToRule(n *astNode,ruleType string) *astNode {
 	
 	foundit = false
 	parent = n.parent
-	fmt.Printf("walkUpToRule Called rule: %s\n",ruleType)
+	// fmt.Printf("walkUpToRule Called rule: %s\n",ruleType)
 	for (parent != l.root ) && (foundit == false) { 
 		if (parent.ruleType == ruleType) {
-			fmt.Printf("walkUpToRule found match %s\n",ruleType)
+			//fmt.Printf("walkUpToRule found match %s\n",ruleType)
 			return parent 
 		}
 		parent = parent.parent 
@@ -163,29 +166,25 @@ func (l *argoListener) walkUpToRule(n *astNode,ruleType string) *astNode {
 // Walk down the AST until we find a matching rule. Use BFS order
 // Returns the first matching node 
 func (l *argoListener) walkDownToRule(node *astNode,ruleType string) *astNode {
-	//var foundit bool
-	//var child *astNode
-	//foundit = false
-
 	var matched *astNode
 	
-	fmt.Printf("walkDownToRule Called rule: %s node: ",ruleType)
+	//fmt.Printf("walkDownToRule Called rule: %s node: ",ruleType)
 
 	if (node == nil) {
-		fmt.Printf("nil \n")
+		// fmt.Printf("nil \n")
 		return nil
 	}
 
-	fmt.Printf("%d\n", node.id)
+	//fmt.Printf("%d\n", node.id)
 	if (node.ruleType == ruleType) {
-		fmt.Printf("walkdowntorule returning %d \n", node.id)
+		//fmt.Printf("walkdowntorule returning %d \n", node.id)
 		return node
 	}
 	
 	for _, childNode := range node.children {
 		matched = l.walkDownToRule(childNode,ruleType)
 		if (matched != nil) {
-			fmt.Printf("walkdowntorule returning child %d\n", matched.id)
+			//fmt.Printf("walkdowntorule returning child %d\n", matched.id)
 			return matched  // return the first match
 		}
 	}
@@ -280,7 +279,6 @@ func (l *argoListener) getAllVariables() int {
 				}
 
 
-				
 				for _, varName := range varNameList {
 					fmt.Printf("found variable in func %s name: %s type: %s \n",funcName.sourceCode,varName,varTypeName)
 				}
@@ -366,7 +364,7 @@ func VisitNode(l *argoListener,c antlr.Tree, parent *astNode,level int) astNode 
 	startline =0; startcol =0; stopline=0; stopcol =0;
 	
 	mylevel := level + 1
-	id = l.getID(c)
+	id = l.getAstID(c)
 	progText = ""
 	isTerminalNode = false
 	_ ,ok1 := c.(antlr.TerminalNode)
@@ -413,7 +411,7 @@ func (l *argoListener) EnterSourceFile(c *parser.SourceFileContext) {
 	var id int
 	
 	level = 0
-	id = l.getID(c)
+	id = l.getAstID(c)
 
 	// get the root AST node
 	root := astNode{ id : id, parentID : 0, parent : nil , ruleType: "SourceFile", sourceCode : "WholeProgramText" } 
@@ -573,8 +571,12 @@ func parseArgo(fname *string) *argoListener {
 	}
 	listener.ProgramLines = progLines
 
-	listener.node2ID = make(map[interface{}]int)
-	listener.nextID = 0
+	listener.astNode2ID = make(map[interface{}]int)
+	listener.nextAstID = 0
+	listener.nextVarID = 0
+	listener.nextStatementID = 0
+	listener.nextBBlockID = 0
+	
 	if (err != nil) {
 		fmt.Printf("Getting program lines failed\n")
 		os.Exit(-1)
