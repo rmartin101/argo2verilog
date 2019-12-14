@@ -14,16 +14,21 @@ func main() {
 	var i,dead,l int ;
 	var j int;
 	var k int;
-	var m1 [55]int;
+	var m0 [55]int;
+	var m1 [11][22]int;
 	
 	doneThis := make(chan int, 1) ;
 	m2 := make(map[int] int);
-	
-	m1[0] = 1;
+
+	// arrays 
+	m0[3] = 12;
+	m1[1][1] = 11;
+	m1[1][1] = m0[3];
+
+	// maps
 	m2[1] = 2;	
 
-
-	m2[2] = 102 + m1[0];
+	m2[2] = 102 + m1[1][1];
 	m2[3] = 103 + m2[0];
 	
 	dead = 3 ;
