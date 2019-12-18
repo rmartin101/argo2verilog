@@ -272,12 +272,21 @@ func (n *astNode) getPrimitiveType() (string,int) {
 	return nameB,numBits
 }
 
-// return the dimension sizes of the array and the type 
-func (n *astNode) getArrayVals() (int,int,string) {
-
+// return the dimension sizes of the array
+// assumes we are at the arrayType Node in the AST graph
+func (node *astNode) getArrayDimensions() ([] int) {
+	var arrayLenNode, basicLitNode *astNode
+	var dimensions []int
+	var dimSize int
 	
-	
-	return -1,-1,""
+	dimensions = make([] int, 2)
+	for _, child := range node.children {
+		arrayLenNode = node.walkDownToRule("arrayLength")
+		if arrayLenNode != nil {
+			basicLitNode = arrayLenNode.walkDownToRule("basicLit")
+			dimensions = append(dimensions,dimSize)
+		}
+	}
 }
 
 // 
