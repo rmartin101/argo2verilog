@@ -95,6 +95,7 @@ type variableNode struct {
 	astDef     *astNode   // link to the astNode parent node
 	astDefNum  int        // ID of the astNode parent definition
 	astClass    string    // originating class
+	isParameter bool      // is the a parameter to a function
 	goLangType  string    // numberic, channel, array or map 
 	sourceName string     // name in the source code
 	sourceRow  int        // row in the source code
@@ -104,13 +105,12 @@ type variableNode struct {
 	numBits int           // number of bits in this variable 
 	canName string        // cannonical name for Verilog: package_row_col_func_name
 	numDim   int          // number of dimension if an array
-	dim1size int          // size of first dimension, verilog only has 2 dimension
-	dim2size int          // size of second dimension
+	dimensions []int      // array that holds a list of the dimensions sizes
 	mapKeyType string     // type of the map key
 	mapValType string     // type of the map value 
 }
 
-
+// this is the struct that holds the global state for this file 
 type argoListener struct {
 	*parser.BaseArgoListener
 	stack []int
@@ -282,15 +282,21 @@ func (node *astNode) getArrayDimensions() ([] int) {
 	dimensions = make([] int, 2)
 	for _, child := range node.children {
 		arrayLenNode = node.walkDownToRule("arrayLength")
-		if arrayLenNode != nil {
+		if (arrayLenNode != nil) {
 			basicLitNode = arrayLenNode.walkDownToRule("basicLit")
-			dimensions = append(dimensions,dimSize)
+			if (basicLitNode != nil ) {
+				dimensions = append(dimensions,dimSize)
+			} else {
+				fmt.Printf("error finding array size\n")
+			}
+			
 		}
 	}
+	return dimensions 
 }
 
 // 
-func (n *astNode) getMapVals() (string,int,string,int) {
+func (n *astNode) getMapKeyVal() (string,int,string,int) {
 	
 	return "",-1,"",-1
 }
