@@ -105,7 +105,7 @@ type variableNode struct {
 	numBits int           // number of bits in this variable 
 	canName string        // cannonical name for Verilog: package_row_col_func_name
 	numDim   int          // number of dimension if an array
-	dimensions []int      // array that holds a list of the dimensions sizes
+	dimensions []int      // the size of the dimensions 
 	mapKeyType string     // type of the map key
 	mapValType string     // type of the map value 
 }
@@ -279,29 +279,50 @@ func (node *astNode) getArrayDimensions() ([] int) {
 	var dimensions []int
 	var dimSize int
 	
-	dimensions = make([] int, 2)
+	dimensions = make([] int, 0)
+	
 	for _, child := range node.children {
-		arrayLenNode = node.walkDownToRule("arrayLength")
-		if (arrayLenNode != nil) {
+		arrayLenNode = child.walkDownToRule("arrayLength")
+		if arrayLenNode != nil {
 			basicLitNode = arrayLenNode.walkDownToRule("basicLit")
-			if (basicLitNode != nil ) {
+			if (basicLitNode != nil) {
+				fmt.Printf("found basicLit ID %d \n",basicLitNode.id)
+				dimSize, _  = strconv.Atoi(basicLitNode.children[0].ruleType)
 				dimensions = append(dimensions,dimSize)
 			} else {
-				fmt.Printf("error finding array size\n")
+				fmt.Printf("error: getting array dimensions AST node %d \n",node.id)
 			}
-			
 		}
+	}
+	if (dimensions == nil) {
+		fmt.Printf("error: no array dimensions found AST node %d \n",node.id)
 	}
 	return dimensions 
 }
 
-// 
-func (n *astNode) getMapKeyVal() (string,int,string,int) {
+// get the map key and value types 
+func (n *astNode) getMapKeyValus() (string,int,string,int) {
 	
 	return "",-1,"",-1
 }
 
+
+// get the number of elements in the channel 
+func (node *astNode) getChannelDepth() (int) {
+	var queueSize int
+	var basicLitNode *astNode
+
+	queueSize = -1
+	basicLitNode = node.walkDownToRule("basicLit")
+	if (basicLitNode != nil) {
+		queueSize, _  = strconv.Atoi(basicLitNode.children[0].ruleType)
+	} else {
+		fmt.Printf("error: getting channel size AST node %d \n",node.id)
+	}
 	
+	return queueSize
+}
+
 func (l *argoListener) getAllVariables() int {
 	var funcDecl *astNode
 	var identifierList,identifierR_type *astNode
@@ -311,15 +332,17 @@ func (l *argoListener) getAllVariables() int {
 	var varNameList []string
 	var varNode     *variableNode 
 	var varTypeStr string  // the type pf the var 
-	var arrayTypeNode, arrayLenNode,channelTypeNode,mapTypeNode *astNode // if the variables are this class
+	var arrayTypeNode,channelTypeNode,mapTypeNode *astNode // if the variables are this class
 	var numBits int
+	var dimensions [] int
 	
 	funcDecl = nil
 	funcName = nil
 	identifierList = nil
 	varTypeStr = ""
 	numBits = -1
-
+	dimensions = nil
+	
 	varNameList = make([] string, 1)     // list of names of the variables 
 	arrayTypeNode = nil
 	channelTypeNode = nil
@@ -359,12 +382,11 @@ func (l *argoListener) getAllVariables() int {
 				
 				// check if these are arrays or channels 
 				if ( arrayTypeNode != nil) {
-					arrayLenNode = node.walkDownToRule("basicLit")
-					arrayLenNode = arrayLenNode.children[0]
+					dimensions = arrayTypeNode.getArrayDimensions()
 				} else {
 					channelTypeNode = node.walkDownToRule("channelType")
 					if ( channelTypeNode!= nil) {
-						// a channel
+						depth = channelTypeNode.getChannelDepth()
 					} else {
 						mapTypeNode = node.walkDownToRule("mapType")
 						if ( mapTypeNode!= nil) {
@@ -398,10 +420,14 @@ func (l *argoListener) getAllVariables() int {
 
 					varNode.goLangType = "numeric"  // default 
 					if (arrayTypeNode != nil) {
+						varNode.dimensions = dimensions
+						varNode.numDim = len(dimensions) 
 						varNode.goLangType = "array"
+						
 					} 
 					if (channelTypeNode != nil) {
 						varNode.goLangType = "channel"
+						varNode.
 					}
 					if (mapTypeNode != nil) {
 						varNode.goLangType = "map"
@@ -499,9 +525,20 @@ func (l *argoListener) printASTnodes(outputStyle string) {
 func (l *argoListener) printVarNodes() {
 
 	for _, node := range l.varNodeList {
-		fmt.Printf("Variable:%d name:%s func:%s pos:(%d,%d) class:%s prim:%s size:%d \n",
+		fmt.Printf("Variable:%d name:%s func:%s pos:(%d,%d) class:%s prim:%s size:%d ",
 			node.id,node.sourceName,node.funcName,node.sourceRow,node.sourceCol,
 			node.goLangType,node.primType, node.numBits)
+		switch (node.goLangType) {
+		case "array":
+			fmt.Printf("dimensions: ")
+			for i,size := range node.dimensions {
+				fmt.Printf(" %d:%d ",i+1,size)
+			}
+		case "map":
+		case "channel":
+		case "numeric":
+		}
+		fmt.Printf("\n")
 	}
 }
 	
