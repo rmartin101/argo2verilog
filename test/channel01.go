@@ -15,7 +15,7 @@ func main() {
 	var j int;
 	var k int;
 	var m0 [55]int;
-	var m1 [11][22]int;
+	var m1 [11][22]int64;
 	
 	doneThis := make(chan int, 1) ;
 	m2 := make(map[int] int);
@@ -23,7 +23,7 @@ func main() {
 	// arrays 
 	m0[3] = 12;
 	m1[1][1] = 11;
-	m1[1][1] = m0[3];
+	m1[1][1] = int64(m0[3]);
 
 	// maps
 	m2[1] = 2;	
