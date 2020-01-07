@@ -103,6 +103,7 @@ type variableNode struct {
 	primType string        // primitive type, e.g. int, float, uint.
 	numBits int           // number of bits in this variable 
 	canName string        // cannonical name for Verilog: package_row_col_func_name
+	depth    int          // depth of a channel (number of element in the queue)               
 	numDim   int          // number of dimension if an array
 	dimensions []int      // the size of the dimensions 
 	mapKeyType string     // type of the map key
@@ -306,7 +307,8 @@ func (n *astNode) getMapKeyValus() (string,int,string,int) {
 }
 
 
-// get the number of elements in the channel 
+// get the number of elements in the channel
+// or -1 if no size is found 
 func (node *astNode) getChannelDepth() (int) {
 	var queueSize int
 	var basicLitNode *astNode
@@ -332,8 +334,10 @@ func (l *argoListener) getAllVariables() int {
 	var varNode     *variableNode 
 	var varTypeStr string  // the type pf the var 
 	var arrayTypeNode,channelTypeNode,mapTypeNode *astNode // if the variables are this class
-	var numBits int
-	var dimensions [] int
+	var numBits int        // number of bits in the type
+	var depth int          // channel depth (size of the buffer) 
+	var dimensions [] int  // slice which holds array dimensions 
+
 	
 	funcDecl = nil
 	funcName = nil
@@ -341,6 +345,7 @@ func (l *argoListener) getAllVariables() int {
 	varTypeStr = ""
 	numBits = -1
 	dimensions = nil
+	depth = 1
 	
 	varNameList = make([] string, 1)     // list of names of the variables 
 	arrayTypeNode = nil
@@ -384,8 +389,23 @@ func (l *argoListener) getAllVariables() int {
 					dimensions = arrayTypeNode.getArrayDimensions()
 				} else {
 					channelTypeNode = node.walkDownToRule("channelType")
+
+
 					if ( channelTypeNode!= nil) {
-						depth = channelTypeNode.getChannelDepth()
+						// channels in parameters do not have a depth
+						// set to -2 as a flag for a channel in a
+						// parameter 
+						depth = -2
+						if ((node.ruleType == "varDecl") || (node.ruleType == "shortVarDecl")) {
+							// any literal as a child is used as the depth. This might not always work. 
+							depth = node.getChannelDepth()
+							// default to 1 if no depth is found 
+							if (depth == -1) {
+								depth = 1
+							}
+						}else {
+							depth = -2 
+						}
 					} else {
 						mapTypeNode = node.walkDownToRule("mapType")
 						if ( mapTypeNode!= nil) {
@@ -426,7 +446,7 @@ func (l *argoListener) getAllVariables() int {
 					} 
 					if (channelTypeNode != nil) {
 						varNode.goLangType = "channel"
-						varNode.
+						varNode.depth = depth 
 					}
 					if (mapTypeNode != nil) {
 						varNode.goLangType = "map"
@@ -441,7 +461,7 @@ func (l *argoListener) getAllVariables() int {
 						fmt.Printf(" array ")
 					} 
 					if (channelTypeNode != nil) {
-						fmt.Printf(" channel ")
+						fmt.Printf(" channel depth %d ", varNode.depth)
 					}
 					if (mapTypeNode != nil) {
 						fmt.Printf(" map ")
@@ -535,6 +555,7 @@ func (l *argoListener) printVarNodes() {
 			}
 		case "map":
 		case "channel":
+			fmt.Printf("depth %d ",node.depth)
 		case "numeric":
 		}
 		fmt.Printf("\n")
