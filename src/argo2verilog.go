@@ -91,7 +91,7 @@ type astNode struct {
 
 // this is the object that holds a variable state 
 type variableNode struct {
-	id int                // every var gets an unique ID
+	id int                // every var gets a unique ID
 	astDef     *astNode   // link to the astNode parent node
 	astDefNum  int        // ID of the astNode parent definition
 	astClass    string    // originating class
@@ -110,6 +110,35 @@ type variableNode struct {
 	mapValType string     // type of the map value 
 }
 
+// holds the nodes for the statement control flow graph 
+type statementNode struct {
+	id             int        // every statement gets an ID
+	astDef         *astNode   // link to the astNode parent node
+	astDefNum      int        // ID of the astNode parent definition
+	astClass       string    // originating class
+	sourceName     string     // The source code of the statement 
+	sourceRow      int        // row in the source code
+	sourceCol      int        // column in the source code
+	funcName       string      // which function is this statement is defined in
+	predecessors   []*statementNode // list of predicessors
+	predIDs        []int       // IDs of the predicessors
+	successors     []*statementNode // list of successors
+	succIDs        []int       // IDs of the successors
+	subStatement   *statementNode // The enclosed block of sub-statements 
+	subStatementID int            // ID of the enclosed block 
+}
+
+// a control block represents a unit of control for execution, that is, a control bit 
+// in the FPGA.
+// We can break up statements into smaller units of control 
+type controlBlockNode struct {
+	id             int        // every control block gets an integer ID
+	cntlDef        *statementNode // pointer back to this statement 
+	
+}
+
+
+// this struct holds the state for the whole program
 
 type argoListener struct {
 	*parser.BaseArgoListener
@@ -424,7 +453,7 @@ func (l *argoListener) getAllVariables() int {
 				}
 
 				for _, varName := range varNameList {
-					fmt.Printf("found variable in func %s name: %s type: %s:%d",funcName.sourceCode,varName,varTypeStr,numBits)
+					// fmt.Printf("found variable in func %s name: %s type: %s:%d",funcName.sourceCode,varName,varTypeStr,numBits)
 					varNode = new(variableNode)
 					varNode.id = l.nextVarID ; l.nextVarID++
 					varNode.astDef = node
@@ -457,23 +486,10 @@ func (l *argoListener) getAllVariables() int {
 					// for this program 
 					l.addVarNode(varNode)
 					
-					if (arrayTypeNode != nil) {
-						fmt.Printf(" array ")
-					} 
-					if (channelTypeNode != nil) {
-						fmt.Printf(" channel depth %d ", varNode.depth)
-					}
-					if (mapTypeNode != nil) {
-						fmt.Printf(" map ")
-					}
-					
-					fmt.Printf(" \n ")
-					
 				}
 				
 				// Given the function name, type and variable names in the list
 				// create a new variable node 
-					
 				
 			} else if (node.ruleType == "shorVarDecl") {
 				// short variable declaration 

@@ -17,7 +17,7 @@ func main() {
 	var m0 [55]int;
 	var m1 [11][22]int64;
 	
-	doneThis := make(chan int, 3) ;
+	doneThis := make(chan int) ;
 	m2 := make(map[int] int);
 
 	// arrays 
@@ -35,7 +35,7 @@ func main() {
 	l = dead;
 	i = 1   ;
 	j = m2[2];
-	k = i + j ;
+	k = (i + j) * dead ;
 	go fubar(doneThis,k) ; 
 
 	
