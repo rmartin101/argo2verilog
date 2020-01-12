@@ -54,6 +54,8 @@ import (
 // use a simple assert with the line number to crash out with a stack trace 
 // an assertion fails.
 
+const NOTSPECIFIED = -1   // not specified, e.g. channel or map size 
+const PARAMETER = -2      // variable is a parameter 
 
 func assert(test bool, message string, location string, stackTrace bool) {
 	fmt.Printf("Assertion failed at %s : cause: %s \n", location, message)
@@ -87,8 +89,21 @@ type astNode struct {
 	sourceColStart  int     // start column in the source code
 	sourceLineEnd   int     // ending line in the source code
 	sourceColEnd   int     // ending column in the source code
+	visited        bool    // flag for if this node is visited 
 }
 
+// this is for the list of functions 
+type functionNode struct {
+	id int               // ID of the function 
+	funceName string     // name of the function
+	fileName  string     // name of the source file 
+	sourceRow  int        // row in the source code
+	sourceCol  int        // column in the source code
+	parameters  []*variableNode   // list of the variables that are parameters to this function
+	retVars    []*variableNode   // list of return variables
+	statements []*statementNode  // list of statements calling this function
+}
+	
 // this is the object that holds a variable state 
 type variableNode struct {
 	id int                // every var gets a unique ID
@@ -101,14 +116,16 @@ type variableNode struct {
 	sourceCol  int        // column in the source code 
 	funcName  string      // which function is this variable defined in
 	primType string        // primitive type, e.g. int, float, uint.
-	numBits int           // number of bits in this variable 
+	numBits     int           // number of bits in this variable
 	canName string        // cannonical name for Verilog: package_row_col_func_name
 	depth    int          // depth of a channel (number of element in the queue)               
 	numDim   int          // number of dimension if an array
 	dimensions []int      // the size of the dimensions 
 	mapKeyType string     // type of the map key
-	mapValType string     // type of the map value 
+	mapValType string     // type of the map value
+	visited        bool    // flag for if this node is visited 
 }
+
 
 // holds the nodes for the statement control flow graph 
 type statementNode struct {
@@ -125,16 +142,16 @@ type statementNode struct {
 	successors     []*statementNode // list of successors
 	succIDs        []int       // IDs of the successors
 	subStatement   *statementNode // The enclosed block of sub-statements 
-	subStatementID int            // ID of the enclosed block 
+	subStatementID int            // ID of the enclosed block
+	visited        bool    // flag for if this node is visited
 }
 
 // a control block represents a unit of control for execution, that is, a control bit 
 // in the FPGA.
-// We can break up statements into smaller units of control 
+// After making a statement CFG, we make a control block CFG of smaller units. 
 type controlBlockNode struct {
 	id             int        // every control block gets an integer ID
 	cntlDef        *statementNode // pointer back to this statement 
-	
 }
 
 
@@ -146,11 +163,12 @@ type argoListener struct {
 	recog antlr.Parser
 	ProgramLines []string // the program as a list of strings, one string per line
 	astNode2ID map[interface{}]int //  a map of the AST node pointers to small integer ID mapping
-	nextAstID int                 // IDs for the AST nodes 
+	nextAstID int                 // IDs for the AST nodes
+	nextFuncID int                // IDs for the function nodes 
 	nextVarID int                 // IDs for the Var nodes
-	varNode2ID map[interface{}]int //  a map of the variable pointers to small integer ID mapping
 	nextStatementID int           // IDs for the statement nodes
-	nextBBlockID int              // IDs for the basic Blocks 
+	nextBlockID int              // IDs for the basic Blocks 
+	varNode2ID map[interface{}]int //  a map of the variable pointers to small integer ID mapping
 	root *astNode                 // root of an absract syntax tree 
 	astNodeList []*astNode        // list of nodes of an absract syntax tree, root has id = 0 
 	varNodeList []*variableNode   // list of all variables in the program
@@ -342,7 +360,7 @@ func (node *astNode) getChannelDepth() (int) {
 	var queueSize int
 	var basicLitNode *astNode
 
-	queueSize = -1
+	queueSize = NOTSPECIFIED
 	basicLitNode = node.walkDownToRule("basicLit")
 	if (basicLitNode != nil) {
 		queueSize, _  = strconv.Atoi(basicLitNode.children[0].ruleType)
@@ -372,7 +390,7 @@ func (l *argoListener) getAllVariables() int {
 	funcName = nil
 	identifierList = nil
 	varTypeStr = ""
-	numBits = -1
+	numBits = NOTSPECIFIED
 	dimensions = nil
 	depth = 1
 	
@@ -429,11 +447,11 @@ func (l *argoListener) getAllVariables() int {
 							// any literal as a child is used as the depth. This might not always work. 
 							depth = node.getChannelDepth()
 							// default to 1 if no depth is found 
-							if (depth == -1) {
+							if (depth == NOTSPECIFIED) {
 								depth = 1
 							}
 						}else {
-							depth = -2 
+							depth = PARAMETER
 						}
 					} else {
 						mapTypeNode = node.walkDownToRule("mapType")
@@ -465,7 +483,8 @@ func (l *argoListener) getAllVariables() int {
 					varNode.sourceCol = node.sourceColStart
 					varNode.primType = varTypeStr
 					varNode.numBits = numBits
-
+					varNode.visited = false
+					
 					varNode.goLangType = "numeric"  // default 
 					if (arrayTypeNode != nil) {
 						varNode.dimensions = dimensions
@@ -508,7 +527,65 @@ func (l *argoListener) getAllVariables() int {
 	return 1
 	
 }
+
+func (l *argoListener) getStatementGraph() int {
+	var funcDecl *astNode  // function declaration for the current statement 
+	var funcName *astNode  // name of the function for the current statement
+	var subNode *astNode  // current statement node
+	var funcStr  string   //  string name of the function
+	var stateNode *statementNode  // current statement node
+
+	// mark all nodes as not visited 
+	for _, node := range l.astNodeList {
+		node.visited = false
+	}
+
+
+	// now make a pass over the graph 
+	for _, astnode := range l.astNodeList {
+
+		// if we find a statement list, start building the statement graph 
+		if (astnode.ruleType == "statementList") {
+			funcDecl = astnode.walkUpToRule("functionDecl")
+			if (len(funcDecl.children) < 2) {  // need assertions here 
+				fmt.Printf("Major Error")
+			}
+			funcName = funcDecl.children[1]
+			funcStr = funcName.sourceCode
+			if (funcName.ruleType == "bar") { // tmp statement 
+				fmt.Printf("remove me")
+			}
+			// top level traversal of the statement list
+
+			for i, listnode := range astnode.children {
+
+				// go one level down to skip the variable declaration statements
+				if (len(listnode.children) > 0) { 
+					subNode = listnode.children[0]
+
+					// skip decls 
+					if (subNode.ruleType != "declaration" )&& (subNode.ruleType != ";") {
+					
+						if (i>0 ) {
+							fmt.Printf("Got rule %s in func %s ID %d at (%d,%d) \n",subNode.ruleType,funcStr,subNode.id,subNode.sourceLineStart,subNode.sourceColStart)
+						}
+						if (listnode.visited == false ){
+							stateNode = new(statementNode)
+							stateNode.id = l.nextStatementID; l.nextStatementID++
+							stateNode.astDef = listnode
+							listnode.visited = true
+						}
+					}
+							
+				}
+				
+			}
+		}
 	
+	
+	}	
+	return 1
+}
 // print all the AST nodes. Can be in rawWithText mode, which includes the source code with each node, or
 // in dotShort mode, which is a graphViz format suitable for making graphs with the dot program 
 func (l *argoListener) printASTnodes(outputStyle string) {
@@ -616,7 +693,8 @@ func VisitNode(l *argoListener,c antlr.Tree, parent *astNode,level int) astNode 
 	ruleName := antlr.TreesGetNodeText(c,nil,l.recog)
 
 	thisNode := astNode{id : id , ruleType : ruleName, parentID: parent.id, parent: parent, sourceCode: progText , isTerminal : isTerminalNode, sourceLineStart: startline, sourceColStart : startcol, sourceLineEnd : stopline, sourceColEnd : stopcol }
-
+	thisNode.visited = false
+	
 	for i := 0; i < c.GetChildCount(); i++ {
 		child := c.GetChild(i)
 		childASTnode := VisitNode(l,child,&thisNode,mylevel)
@@ -803,7 +881,7 @@ func parseArgo(fname *string) *argoListener {
 	listener.varNode2ID = make(map[interface{}]int)
 
 	listener.nextStatementID = 0
-	listener.nextBBlockID = 0
+	listener.nextBlockID = 0
 	
 	if (err != nil) {
 		fmt.Printf("Getting program lines failed\n")
@@ -828,7 +906,9 @@ func main() {
 
 	flag.Parse()
 	parsedProgram = parseArgo(inputFileName_p)
-	parsedProgram.getAllVariables() 
+	parsedProgram.getAllVariables()
+	parsedProgram.getStatementGraph()
+	
 	if (*printASTasGraphViz_p) {
 		parsedProgram.printASTnodes("rawWithText")
 		//parsedProgram.printASTnodes("dotShort")

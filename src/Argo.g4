@@ -72,6 +72,12 @@ simpleStmt
     | goStmt
     | sendStmt
     | recvStmt
+    | labeledStmt
+    | returnStmt
+    | breakStmt
+    | continueStmt
+    | gotoStmt
+    | fallthroughStmt
     | emptyStmt
     ;
 
@@ -109,6 +115,37 @@ sendStmt
 
 recvStmt
     : ( expressionList '=' | identifierList ':=' )? expression
+    ;
+
+//LabeledStmt = Label ":" Statement .
+//Label       = identifier .
+labeledStmt
+    : IDENTIFIER ':' statement
+    ;
+
+//ReturnStmt = "return" [ ExpressionList ] .
+returnStmt
+    : 'return' expressionList?
+    ;
+
+//BreakStmt = "break" [ Label ] .
+breakStmt
+    : 'break' IDENTIFIER?
+    ;
+
+//ContinueStmt = "continue" [ Label ] .
+continueStmt
+    : 'continue' IDENTIFIER?
+    ;
+
+//GotoStmt = "goto" Label .
+gotoStmt
+    : 'goto' IDENTIFIER
+    ;
+
+//FallthroughStmt = "fallthrough" .
+fallthroughStmt
+    : 'fallthrough'
     ;
 
 //IncDecStmt
