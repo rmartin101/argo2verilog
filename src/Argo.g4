@@ -296,9 +296,15 @@ function
     ;
 
 signature 
-    : parameters
+    : parameters result
+    | parameters 
     ;
 
+result
+    : parameters
+    | r_type
+    ;
+    
 parameters
     : '(' ( parameterList ','? )? ')'
     ;

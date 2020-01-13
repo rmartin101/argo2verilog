@@ -2,9 +2,8 @@ package main ;
 
 import ( "fmt" ) ;
 
-
-func snafu(a int, b [55]int) int {
-	var c int;
+func snafu(a int, b int) int {
+	var c,d int ;
 
 	c = (a + b[0]) * (a - b[0]) ;
 
@@ -50,10 +49,10 @@ func main() {
 
 	
 	if  k > (2+dead+l)  {
-		i = 2
+		i = 2; 
 		fmt.Printf("The result is small: %d \n", k) ;
 	} else {
-		j = 7 
+		j = 7 ;
 		fmt.Printf("The result is big: %d %d  \n", k,j) ;
 	} ;
 
