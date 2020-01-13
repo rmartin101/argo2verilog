@@ -45,6 +45,7 @@ import (
 	"errors"
 	"runtime"
 	"sort"
+	"log"
 	// "bytes"
 	"./parser"
 	"github.com/antlr/antlr4/runtime/Go/antlr"
@@ -56,6 +57,26 @@ import (
 
 const NOTSPECIFIED = -1   // not specified, e.g. channel or map size 
 const PARAMETER = -2      // variable is a parameter 
+
+// an interval-based debugging level system
+// 1 is general debug statements, higher is specific 
+type DebugLog struct {
+	flags map[string]bool 
+}
+
+
+func (d *DebugLog) init() {
+	log.SetFlags(log.Flags() &^ (log.Ldate | log.Ltime)) // remove timestamp 
+}
+	
+func (d *DebugLog) DbgLog(level string, format string, args ...interface{}) {
+	var s string 
+	if (d.flags[level]) {
+		s = fmt.Sprintf(s, format,args)
+		log.Print(s)
+	}
+}
+
 
 func assert(test bool, message string, location string, stackTrace bool) {
 	fmt.Printf("Assertion failed at %s : cause: %s \n", location, message)
@@ -89,7 +110,7 @@ type astNode struct {
 	sourceColStart  int     // start column in the source code
 	sourceLineEnd   int     // ending line in the source code
 	sourceColEnd   int     // ending column in the source code
-	visited        bool    // flag for if this node is visited 
+	visited        bool    // flag for if this node is visited
 }
 
 // this is for the list of functions 
@@ -164,6 +185,7 @@ type argoListener struct {
 	*parser.BaseArgoListener
 	stack []int
 	recog antlr.Parser
+	logIt DebugLog //send items to the log 
 	ProgramLines []string // the program as a list of strings, one string per line
 	astNode2ID map[interface{}]int //  a map of the AST node pointers to small integer ID mapping
 	nextAstID int                 // IDs for the AST nodes
@@ -175,7 +197,7 @@ type argoListener struct {
 	root *astNode                 // root of an absract syntax tree 
 	astNodeList []*astNode        // list of nodes of an absract syntax tree, root has id = 0 
 	varNodeList []*variableNode   // list of all variables in the program
-	varNodeNameMap map[string]*variableNode  // map of cannonical names to variable nodes 
+	varNodeNameMap map[string]*variableNode  // map of cannonical names to variable nodes
 }
 
 // get a node ID in the AST tree 
@@ -885,12 +907,17 @@ func parseArgo(fname *string) *argoListener {
 
 	listener.nextStatementID = 0
 	listener.nextBlockID = 0
+	listener.logIt.flags = make(map[string]bool,16)
+	listener.logIt.init()
+	listener.logIt.flags["MIN"] = true
 	
 	if (err != nil) {
 		fmt.Printf("Getting program lines failed\n")
 		os.Exit(-1)
 	}
 
+	listener.logIt.DbgLog("MIN","testing the log %d %d %d \n",5,10,20)
+	
 	// Finally parse the expression (by walking the tree)
 	antlr.ParseTreeWalkerDefault.Walk(&listener, p.SourceFile())
 	
