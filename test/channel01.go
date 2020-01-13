@@ -2,7 +2,7 @@ package main ;
 
 import ( "fmt" ) ;
 
-func snafu(a int, b int) int {
+func snafu(a int, b [55]int) int {
 	var c,d int ;
 
 	c = (a + b[0]) * (a - b[0]) ;
