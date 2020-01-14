@@ -153,9 +153,11 @@ type variableNode struct {
 // holds the nodes for the statement control flow graph 
 type statementNode struct {
 	id             int        // every statement gets an ID
-	astDef         *astNode   // link to the astNode parent node
-	astDefNum      int        // ID of the astNode parent definition
-	astClass       string    // originating class
+	astDef         *astNode   // link to the astNode parent node of the statement type
+	astDefID      int        // ID of the astNode parent definition
+	astSubDef      *astNode   // the simplestatement type (e.g assignment, for, send, goto ...)
+	astSubDefID    int        // ID of the simple statement type 
+	simpleType     string     // the type of the simple statement 
 	sourceName     string     // The source code of the statement 
 	sourceRow      int        // row in the source code
 	sourceCol      int        // column in the source code
@@ -199,6 +201,7 @@ type argoListener struct {
 	astNodeList []*astNode        // list of nodes of an absract syntax tree, root has id = 0 
 	varNodeList []*variableNode   // list of all variables in the program
 	varNodeNameMap map[string]*variableNode  // map of cannonical names to variable nodes
+	statementGraph   []*statementNode   // list of statement nodes. 
 }
 
 // get a node ID in the AST tree 
@@ -510,7 +513,7 @@ func (l *argoListener) getAllVariables() int {
 					varNode.primType = varTypeStr
 					varNode.numBits = numBits
 					varNode.visited = false
-					
+					varNode.isParameter = false 
 					varNode.goLangType = "numeric"  // default 
 					if (arrayTypeNode != nil) {
 						varNode.dimensions = dimensions
@@ -526,7 +529,11 @@ func (l *argoListener) getAllVariables() int {
 						varNode.goLangType = "map"
 
 					}
-
+					
+					if (node.ruleType== "parameterDecl") {
+						varNode.isParameter = true 
+					}
+					
 					// add this to a list of the variable nodes
 					// for this program 
 					l.addVarNode(varNode)
@@ -554,13 +561,15 @@ func (l *argoListener) getAllVariables() int {
 	
 }
 
+// Generate a control flow graph (CFG) at the statement level.
 func (l *argoListener) getStatementGraph() int {
 	var funcDecl *astNode  // function declaration for the current statement 
 	var funcName *astNode  // name of the function for the current statement
 	var subNode *astNode  // current statement node
 	var funcStr  string   //  string name of the function
+	var statementList []*statementNode
 	var stateNode *statementNode  // current statement node
-
+	
 	// mark all nodes as not visited 
 	for _, node := range l.astNodeList {
 		node.visited = false
@@ -601,7 +610,9 @@ func (l *argoListener) getStatementGraph() int {
 							stateNode.id = l.nextStatementID; l.nextStatementID++
 							stateNode.astDef = listnode
 							listnode.visited = true
+							statementList = append(statementList, stateNode)
 						}
+						
 					}
 							
 				}
@@ -664,9 +675,9 @@ func (l *argoListener) printASTnodes(outputStyle string) {
 func (l *argoListener) printVarNodes() {
 
 	for _, node := range l.varNodeList {
-		fmt.Printf("Variable:%d name:%s func:%s pos:(%d,%d) class:%s prim:%s size:%d ",
+		fmt.Printf("Variable:%d name:%s func:%s pos:(%d,%d) class:%s prim:%s size:%d param:%t ",
 			node.id,node.sourceName,node.funcName,node.sourceRow,node.sourceCol,
-			node.goLangType,node.primType, node.numBits)
+			node.goLangType,node.primType, node.numBits,node.isParameter)
 		switch (node.goLangType) {
 		case "array":
 			fmt.Printf("dimensions: ")
