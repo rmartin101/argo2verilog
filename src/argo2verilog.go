@@ -70,10 +70,11 @@ func (d *DebugLog) init() {
 }
 	
 func (d *DebugLog) DbgLog(level string, format string, args ...interface{}) {
-	var s string 
+	var s1,s2 string 
 	if (d.flags[level]) {
-		s = fmt.Sprintf(s, format,args)
-		log.Print(s)
+		s1 = fmt.Sprintf(format,args...)
+		s2= fmt.Sprintf("%s: %s",level,s1)
+		log.Print(s2)
 	}
 }
 
@@ -390,7 +391,7 @@ func (node *astNode) getChannelDepth() (int) {
 	if (basicLitNode != nil) {
 		queueSize, _  = strconv.Atoi(basicLitNode.children[0].ruleType)
 	} else {
-		fmt.Printf("error: getting channel size AST node %d \n",node.id)
+		//fmt.Printf("error: getting channel size AST node %d \n",node.id)
 	}
 	
 	return queueSize
@@ -580,6 +581,7 @@ func (l *argoListener) getStatementGraph() int {
 			if (funcName.ruleType == "bar") { // tmp statement 
 				fmt.Printf("remove me")
 			}
+			fmt.Printf("In statementList at %d %d \n",astnode.sourceLineStart,astnode.sourceColStart)
 			// top level traversal of the statement list
 
 			for i, listnode := range astnode.children {
