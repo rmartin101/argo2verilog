@@ -201,7 +201,7 @@ type argoListener struct {
 	astNodeList []*astNode        // list of nodes of an absract syntax tree, root has id = 0 
 	varNodeList []*variableNode   // list of all variables in the program
 	varNodeNameMap map[string]*variableNode  // map of cannonical names to variable nodes
-	statementGraph   []*statementNode   // list of statement nodes. 
+	statementGraph   [][]*statementNode   // list of statement nodes. 
 }
 
 // get a node ID in the AST tree 
@@ -561,69 +561,101 @@ func (l *argoListener) getAllVariables() int {
 	
 }
 
-// Generate a control flow graph (CFG) at the statement level.
-func (l *argoListener) getStatementGraph() int {
+
+// Given a statementlist, return a list of statementNodes
+// Uses recursion to follow if and for statements 
+func (l *argoListener) getListOfStatments(listnode *astNode) []*statementNode {
 	var funcDecl *astNode  // function declaration for the current statement 
 	var funcName *astNode  // name of the function for the current statement
 	var subNode *astNode  // current statement node
+	var simpleNode *astNode // which simpleStmt type is this?, e.g ifStmt, shortVarDecl, forStmt.
 	var funcStr  string   //  string name of the function
 	var statementList []*statementNode
 	var stateNode *statementNode  // current statement node
+
+	funcDecl = listnode.walkUpToRule("functionDecl")
+	if (len(funcDecl.children) < 2) {  // need assertions here 
+		fmt.Printf("Major Error")
+	}
+	funcName = funcDecl.children[1]
+	funcStr = funcName.sourceCode
+	if (funcName.ruleType == "bar") { // tmp statement 
+		fmt.Printf("remove me")
+	}
+	fmt.Printf("In statementList at %s ID:%d  at(%d %d) \n",listnode.ruleType, listnode.id,listnode.sourceLineStart,listnode.sourceColStart)
+	// top level traversal of the statement list
+	
+	for i, childnode := range listnode.children { // for each statement in the statementlist 
+		subNode = nil
+		// go one level down to skip the variable declaration statements
+		if (len(childnode.children) > 0) { 
+			subNode = childnode.children[0] // subnode should be a statement
+
+			// skip decls 
+			if (subNode.ruleType != "declaration" )&& (subNode.ruleType != ";") && (len(subNode.children) >0) {
+				simpleNode = subNode.children[0] // which type of simple statement is this
+				
+				if (i>=0 ) {
+					fmt.Printf("Got rule %s in func %s ID %d at (%d,%d) \n",simpleNode.ruleType,funcStr,simpleNode.id,simpleNode.sourceLineStart,simpleNode.sourceColStart)
+				}
+				if (childnode.visited == false ){
+					stateNode = new(statementNode)
+					stateNode.id = l.nextStatementID; l.nextStatementID++
+					stateNode.astDef = childnode
+					stateNode.astDefID =  childnode.id
+					stateNode.astSubDef = simpleNode
+					stateNode.astSubDefID =  simpleNode.id
+					stateNode.simpleType = simpleNode.ruleType
+					stateNode.funcName = funcStr
+					stateNode.sourceRow =  simpleNode.sourceLineStart 
+					stateNode.sourceCol =  simpleNode.sourceColStart
+					statementList = append(statementList, stateNode)
+					childnode.visited = true
+
+				}
+
+				switch stateNode.simpleType {
+				case "assignment":
+					fmt.Printf("assignment statement\n")
+				default:
+					fmt.Printf("Major error: no such statement type\n")
+				}
+			}
+			
+		}
+		// add links to previous/next for the sub-nodes 
+		
+	}
+	return statementList
+}
+
+
+
+// Generate a control flow graph (CFG) at the statement level.
+// This function generates all the 
+func (l *argoListener) getStatementGraph() int {
+	var statements []*statementNode // list of statement nodes
+	var numLists int
 	
 	// mark all nodes as not visited 
 	for _, node := range l.astNodeList {
 		node.visited = false
 	}
 
-
+	numLists = 0
 	// now make a pass over the graph 
 	for _, astnode := range l.astNodeList {
 
 		// if we find a statement list, start building the statement graph 
 		if (astnode.ruleType == "statementList") {
-			funcDecl = astnode.walkUpToRule("functionDecl")
-			if (len(funcDecl.children) < 2) {  // need assertions here 
-				fmt.Printf("Major Error")
-			}
-			funcName = funcDecl.children[1]
-			funcStr = funcName.sourceCode
-			if (funcName.ruleType == "bar") { // tmp statement 
-				fmt.Printf("remove me")
-			}
-			fmt.Printf("In statementList at %d %d \n",astnode.sourceLineStart,astnode.sourceColStart)
-			// top level traversal of the statement list
-
-			for i, listnode := range astnode.children {
-
-				// go one level down to skip the variable declaration statements
-				if (len(listnode.children) > 0) { 
-					subNode = listnode.children[0]
-
-					// skip decls 
-					if (subNode.ruleType != "declaration" )&& (subNode.ruleType != ";") {
-					
-						if (i>0 ) {
-							fmt.Printf("Got rule %s in func %s ID %d at (%d,%d) \n",subNode.ruleType,funcStr,subNode.id,subNode.sourceLineStart,subNode.sourceColStart)
-						}
-						if (listnode.visited == false ){
-							stateNode = new(statementNode)
-							stateNode.id = l.nextStatementID; l.nextStatementID++
-							stateNode.astDef = listnode
-							listnode.visited = true
-							statementList = append(statementList, stateNode)
-						}
-						
-					}
-							
-				}
-				
-			}
+			statements = l.getListOfStatments(astnode)
+			numLists++
+			l.statementGraph = append(l.statementGraph,statements)
 		}
-	
-	
-	}	
-	return 1
+	}
+	return numLists
 }
+
 // print all the AST nodes. Can be in rawWithText mode, which includes the source code with each node, or
 // in dotShort mode, which is a graphViz format suitable for making graphs with the dot program 
 func (l *argoListener) printASTnodes(outputStyle string) {
@@ -692,7 +724,16 @@ func (l *argoListener) printVarNodes() {
 		fmt.Printf("\n")
 	}
 }
+
+func (l *argoListener) printStatementGraph() {
 	
+	for _, statementlist := range l.statementGraph {
+		for _, node := range statementlist {
+			fmt.Printf("got statement ID:%d at (%d,%d) type:%s\n", node.id, node.sourceRow, node.sourceCol, node.simpleType)
+		}
+	}
+}
+
 // recursive function to visit nodes in the Antlr4 graph 
 func VisitNode(l *argoListener,c antlr.Tree, parent *astNode,level int) astNode {
 	var progText string
@@ -951,7 +992,7 @@ func main() {
 	parsedProgram = parseArgo(inputFileName_p)
 	parsedProgram.getAllVariables()
 	parsedProgram.getStatementGraph()
-	
+	parsedProgram.printStatementGraph()
 	if (*printASTasGraphViz_p) {
 		parsedProgram.printASTnodes("rawWithText")
 		//parsedProgram.printASTnodes("dotShort")

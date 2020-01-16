@@ -68,6 +68,7 @@ simpleStmt
     | assignment
     | shortVarDecl
     | ifStmt
+    | switchStmt
     | forStmt
     | goStmt
     | sendStmt
@@ -92,6 +93,40 @@ assignment
 ifStmt
     : 'if' (simpleStmt ';')? expression block ( 'else' ( ifStmt | block ) )?
     ;
+
+switchStmt
+    : exprSwitchStmt | typeSwitchStmt
+    ;
+
+//ExprSwitchStmt
+exprSwitchStmt
+    : 'switch' ( simpleStmt ';' )? expression? '{' exprCaseClause* '}'
+    ;
+
+exprCaseClause
+    : exprSwitchCase ':' statementList
+    ;
+
+exprSwitchCase
+    : 'case' expressionList | 'default'
+    ;
+
+typeSwitchStmt
+    : 'switch' ( simpleStmt ';' )? typeSwitchGuard '{' typeCaseClause* '}'
+    ;
+typeSwitchGuard
+    : ( IDENTIFIER ':=' )? primaryExpr '.' '(' 'type' ')'
+    ;
+typeCaseClause
+    : typeSwitchCase ':' statementList
+    ;
+typeSwitchCase
+    : 'case' typeList | 'default'
+    ;
+typeList
+    : r_type ( ',' r_type )*
+    ;
+
 
 forStmt
     : 'for' ( expression | forClause | rangeClause )? block
