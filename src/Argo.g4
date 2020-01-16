@@ -28,9 +28,32 @@ statementList
     : ( statement eos )*
     ;
 
+// Regular statements 
 statement
     : declaration
+    | labeledStmt
     | simpleStmt
+    | goStmt
+    | returnStmt
+    | breakStmt
+    | continueStmt
+    | gotoStmt
+    | fallthroughStmt
+    | block
+    | ifStmt
+    | switchStmt
+    | selectStmt
+    | forStmt
+       ;
+
+// Only simple statements can be used in if, swtich and for clauses 
+simpleStmt
+    : sendStmt
+    | expressionStmt
+    | incDecStmt
+    | assignment
+    | shortVarDecl
+    | emptyStmt
     ;
 
 declaration
@@ -61,26 +84,6 @@ expressionList
 
 identifierList
     : IDENTIFIER ( ',' IDENTIFIER )*
-    ;
-
-simpleStmt
-    : expressionStmt
-    | assignment
-    | shortVarDecl
-    | ifStmt
-    | switchStmt
-    | forStmt
-    | goStmt
-    | sendStmt
-    | recvStmt
-    | selectStmt
-    | labeledStmt
-    | returnStmt
-    | breakStmt
-    | continueStmt
-    | gotoStmt
-    | fallthroughStmt
-    | emptyStmt
     ;
 
 expressionStmt
@@ -195,6 +198,9 @@ fallthroughStmt
     ;
 
 //IncDecStmt
+incDecStmt
+    : expression ( '++' | '--' )
+    ;
 
 //Type
 

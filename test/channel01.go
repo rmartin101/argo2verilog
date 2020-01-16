@@ -5,9 +5,10 @@ import ( "fmt" ) ;
 func snafu(a int, b [55]int) int {
 	var c,d int ;
 
+	d = 5;
 	c = (a + b[0]) * (a - b[0]) ;
 
-	return c; 
+	return c+d; 
 }; 
 
 func fubar(done chan int, z int) {
@@ -47,7 +48,11 @@ func main() {
 	k = (i + j) * snafu(dead,m0) ;
 	go fubar(doneThis,k) ; 
 
-	
+	if  10*k < (2+dead+l)  {
+		l = 2;
+		fmt.Printf("The Stock is up: %d \n", dead) ;		
+	}
+
 	if  k > (2+dead+l)  {
 		i = 2; 
 		fmt.Printf("The result is small: %d \n", k) ;
