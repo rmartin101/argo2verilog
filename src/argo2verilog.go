@@ -563,6 +563,31 @@ func (l *argoListener) getAllVariables() int {
 }
 
 
+func (l *argoListener) parseIfStmt(ifnode *astNode,funcDecl *astNode) [][]*statementNode {
+	//var testExprNode *astNode            // this is the test expression
+	//var takenNode,elseNode *astNode      // these are the blocks for the taken/not taken sides 
+
+	return nil
+}
+
+func (l *argoListener) parseForStmt(fornode *astNode,funcDecl *astNode) [][]*statementNode {
+	//var testExprNode *astNode            // this is the test expression
+	//var preNode, postNode *astNode      // these are the pre and post simple Statements
+
+	
+	return nil
+}
+
+func (l *argoListener) parseSwitchStmt(switchnode *astNode,funcDecl *astNode) [][]*statementNode {
+	return nil
+}
+
+
+func (l *argoListener) parseSelectStmt(selectnode *astNode,funcDecl *astNode) [][]*statementNode {
+	return nil
+}
+
+
 // Given a statementlist, return a list of statementNodes
 // Uses recursion to follow if and for statements 
 func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) []*statementNode {
@@ -601,7 +626,8 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 				if (i>=0 ) {
 					fmt.Printf("Got rule %s in func %s ID %d at (%d,%d) \n",stmtTypeNode.ruleType,funcStr,stmtTypeNode.id,stmtTypeNode.sourceLineStart,stmtTypeNode.sourceColStart)
 				}
-				if (childnode.visited == false ){
+				// create a new statement node if we have not visited the originating AST statement node
+				if (childnode.visited == false ){  
 					stateNode = new(statementNode)
 					stateNode.id = l.nextStatementID; l.nextStatementID++
 					stateNode.astDef = childnode
@@ -621,6 +647,7 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 
 				}
 
+				// get sub statement lists for this node 
 				switch stateNode.stmtType { 
 				case "declaration": 
 				case "labeledStmt":
@@ -631,7 +658,6 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 				case "gotoStmt":
 				case "fallthroughStmt":
 				case "ifStmt":
-					
 				case "switchStmt":
 				case "selectStmt":
 				case "forStmt":
