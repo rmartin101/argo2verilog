@@ -73,6 +73,7 @@ simpleStmt
     | goStmt
     | sendStmt
     | recvStmt
+    | selectStmt
     | labeledStmt
     | returnStmt
     | breakStmt
@@ -152,6 +153,16 @@ recvStmt
     : ( expressionList '=' | identifierList ':=' )? expression
     ;
 
+selectStmt
+    : 'select' '{' commClause* '}'
+    ;
+commClause
+    : commCase ':' statementList
+    ;
+commCase
+    : 'case' ( sendStmt | recvStmt ) | 'default'
+    ;
+    
 //LabeledStmt = Label ":" Statement .
 //Label       = identifier .
 labeledStmt

@@ -564,24 +564,20 @@ func (l *argoListener) getAllVariables() int {
 
 // Given a statementlist, return a list of statementNodes
 // Uses recursion to follow if and for statements 
-func (l *argoListener) getListOfStatments(listnode *astNode) []*statementNode {
-	var funcDecl *astNode  // function declaration for the current statement 
+func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) []*statementNode {
 	var funcName *astNode  // name of the function for the current statement
+	var funcStr  string   //  string name of the function
 	var subNode *astNode  // current statement node
 	var simpleNode *astNode // which simpleStmt type is this?, e.g ifStmt, shortVarDecl, forStmt.
-	var funcStr  string   //  string name of the function
 	var statementList []*statementNode
-	var stateNode *statementNode  // current statement node
-
-	funcDecl = listnode.walkUpToRule("functionDecl")
+	var stateNode *statementNode
+	
 	if (len(funcDecl.children) < 2) {  // need assertions here 
 		fmt.Printf("Major Error")
 	}
 	funcName = funcDecl.children[1]
 	funcStr = funcName.sourceCode
-	if (funcName.ruleType == "bar") { // tmp statement 
-		fmt.Printf("remove me")
-	}
+	
 	fmt.Printf("In statementList at %s ID:%d  at(%d %d) \n",listnode.ruleType, listnode.id,listnode.sourceLineStart,listnode.sourceColStart)
 	// top level traversal of the statement list
 	
@@ -634,9 +630,14 @@ func (l *argoListener) getListOfStatments(listnode *astNode) []*statementNode {
 // Generate a control flow graph (CFG) at the statement level.
 // This function generates all the 
 func (l *argoListener) getStatementGraph() int {
+	var funcDecl *astNode  // Function Declaration 
+	var funcName *astNode  // name of the function for the current statement
+	var funcStr  string   //  string name of the function
+	var entryNode *statementNode // function declation is the entry node in the graph 
 	var statements []*statementNode // list of statement nodes
 	var numLists int
-	
+
+
 	// mark all nodes as not visited 
 	for _, node := range l.astNodeList {
 		node.visited = false
@@ -648,9 +649,40 @@ func (l *argoListener) getStatementGraph() int {
 
 		// if we find a statement list, start building the statement graph 
 		if (astnode.ruleType == "statementList") {
-			statements = l.getListOfStatments(astnode)
-			numLists++
-			l.statementGraph = append(l.statementGraph,statements)
+
+
+			// add the function declaration to the statement graph as the
+			// entry point for the statements in the function
+			// this entry point becomes the copy-in for parameters in the block-graph 
+			funcDecl = astnode.walkUpToRule("functionDecl")
+			if (len(funcDecl.children) < 2) {  // need assertions here 
+				fmt.Printf("Major Error")
+			}
+			funcName = funcDecl.children[1]
+			funcStr = funcName.sourceCode
+			// We need to include function declarations in the statement graph because
+			// they are the place node of copying in the arguments in the graph.
+			if (funcDecl.visited == false ) {
+				entryNode = new(statementNode)
+				entryNode.id = l.nextStatementID; l.nextStatementID++
+				entryNode.astDef = funcDecl
+				entryNode.astDefID =  funcDecl.id
+				entryNode.astSubDef = nil 
+				entryNode.astSubDefID =  0
+				entryNode.simpleType = funcDecl.ruleType
+				entryNode.funcName = funcStr
+				entryNode.sourceRow =  funcDecl.sourceLineStart 
+				entryNode.sourceCol =  funcDecl.sourceColStart
+				funcDecl.visited = true
+
+				statements = append(statements,entryNode)
+				
+				// get the rest of the startements in the function
+				statements = l.getListOfStatments(astnode,funcDecl)
+				
+				l.statementGraph = append(l.statementGraph,statements)
+			}
+			// set the edges from the entry point to this list 
 		}
 	}
 	return numLists
