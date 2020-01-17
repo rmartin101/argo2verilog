@@ -1,3 +1,5 @@
+// Small program to test channels 
+
 package main ;
 
 import ( "fmt" ) ;
@@ -51,7 +53,7 @@ func main() {
 	if  10*k < (2+dead+l)  {
 		l = 2;
 		fmt.Printf("The Stock is up: %d \n", dead) ;		
-	}
+	};
 
 	if  k > (2+dead+l)  {
 		i = 2; 

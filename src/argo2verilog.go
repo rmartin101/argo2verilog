@@ -32,6 +32,9 @@
   E   Control flow --- bit-vectors for control flow for each function. Each bit controls 1 basic block.  
 */
 
+/* inferrng dual port BRAMS: https://danstrother.com/2010/09/11/inferring-rams-in-fpgas/
+*/
+
 package main
 
 import (
@@ -162,6 +165,8 @@ type statementNode struct {
 	sourceRow      int        // row in the source code
 	sourceCol      int        // column in the source code
 	funcName       string      // which function is this statement is defined in
+	readVars       []*variableNode  // variables read in this statement
+	writeVars      []*variableNode  // variables written to in this statement 
 	predecessors   []*statementNode // list of predicessors
 	predIDs        []int       // IDs of the predicessors
 	successors     []*statementNode // list of successors
@@ -562,11 +567,67 @@ func (l *argoListener) getAllVariables() int {
 	
 }
 
+// parse an ifStmt AST node into a statement graph nodes 
+func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode) [][]*statementNode {
+	var simpleStmtNode *astNode          // if there is a simple statement in the node 
+	var testExprNode *astNode            // this is the test expression
+	var takenNode,elseNode *astNode      // these are the blocks for the taken/not taken sides
+	var simpleStmt, testStmt, takenStmt, elseStmt *statementNode
+	var seenFirstBlock bool;             // Have we seen the first block. It is the taken branch
 
-func (l *argoListener) parseIfStmt(ifnode *astNode,funcDecl *astNode) [][]*statementNode {
-	//var testExprNode *astNode            // this is the test expression
-	//var takenNode,elseNode *astNode      // these are the blocks for the taken/not taken sides 
+	simpleStmtNode = nil; testExprNode = nil ; takenNode = nil; elseNode = nil
+	simpleStmt = nil;  testStmt = nil; takenStmt = nil; elseStmt =nil
+	
+	seenFirstBlock = false
 
+	// loop for each child and create the appropriate statement node 
+	for _, childNode := range ifNode.children {
+
+		if (childNode.ruleType == "simpleStmt") {
+			
+			simpleStmtNode = childNode
+			simpleStmt = new(statementNode)
+			simpleStmt.id = l.nextStatementID; l.nextStatementID++
+			simpleStmt.astDef = childNode
+			simpleStmt.astDefID =  childNode.id 
+			simpleStmt.astSubDef = childnode
+			simpleStmt.astSubDefID =  childnode.id
+			simpleStmt.stmtType = childNode.ruleType
+			simpleStmt.funcName = funcStr
+			simpleStmt.sourceRow =  childNode.sourceLineStart 
+			simpleStmt.sourceCol =  childNode.sourceColStart
+			simpleStmt.subStmtsTaken = nil
+			simpleStmt.subStmtsElse = nil
+			simpleStmt.subStmtsList = nil
+			
+			statementList = append(statementList, simpleStmt)
+			childnode.visited = true
+		}
+
+
+		if (childNode.ruleType == "expression") {
+			testExprNode = childNode
+			testStmt = new(statementNode)
+			
+		}
+
+		if (seenFirstBlock == false) && (childNode.ruleType == "block") {
+			takenNode = childNode
+			takenStmt = new(statementNode)
+			
+		}
+
+		if (seenFirstBlock == true) && (childNode.ruleType == "block") {
+			elseNode = childNode
+			elseStmt = new(statementNode)
+			
+		}
+
+	}
+
+	
+
+	fmt.Printf("if statement %s %s %s", testExprNode.ruleType,takenNode.ruleType,elseNode.ruleType)
 	return nil
 }
 
