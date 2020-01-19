@@ -822,24 +822,14 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 	}
 
 	for i, node := range statementList {
-		astSub := node.astSubDef
-		if (node == nil) {
-			fmt.Printf("\t \tError node is nil \n")
-			continue 
+		if (node.astSubDef == nil) {
+			astDef := node.astDef 
+			fmt.Printf("\t \treturning statements: %d stmt,ast [%d,%d] type %s \n",i,node.id, astDef.ruleType)
+		} else {
+			astSub := node.astSubDef
+			fmt.Printf("\t \treturning statements: %d stmt,astSub [%d,%d] type %s \n",i,node.id,astSub.id,astSub.ruleType)
 		}
 
-		if (astSub == nil) {
-			fmt.Printf("\t \tError astSub is nil \n")
-			continue 
-		}
-		
-
-		if (node.stmtType == "") {
-			fmt.Printf("\t \tError stmtType is nil \n")
-			continue 
-		}
-		
-		fmt.Printf("\t \treturning statements: %d stmt,ast [%d,%d] type %s \n",i,node.id,  astSub.id, node.stmtType)
 	}
 	return statementList 
 }
