@@ -229,10 +229,13 @@ typeName
     : IDENTIFIER
     ;
 
+// need to add slices 
 typeLit
     : arrayType
     | mapType
     | channelType
+    | structType
+    | pointerType 
     ;
 
 arrayType
@@ -255,6 +258,11 @@ channelType
 elementType
     : r_type
     ;
+
+pointerType
+    : '*' r_type
+    ;
+
 
 //    | expression BINARY_OP expression
 expression
@@ -367,6 +375,15 @@ parameterList
 
 parameterDecl
     : identifierList? '...'? r_type
+    ;
+
+
+structType
+    : 'struct' '{' ( fieldDecl eos )* '}'
+    ;
+
+fieldDecl
+    : ( identifierList r_type) STRING_LIT?
     ;
 
 
