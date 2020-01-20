@@ -19,7 +19,7 @@ func main() {
 
 
 	// if with an else 
-	if  (k >= (i + j)) {
+	if  (k >= (i + 3)) {
 		i = 4;
 		k = i + i;
 		fmt.Printf("K is: %d \n", k) ;
@@ -36,7 +36,7 @@ func main() {
 	};
 
 	// if else with simple statement 
-	if  y:=7; y <= ( i+j+k )  {
+	if  y:= 0xFFAB ; y <= ( i+j+k )  {
 		fmt.Printf("Y is %d  \n", y) ;
 		
 	} else {

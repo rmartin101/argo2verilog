@@ -409,7 +409,8 @@ func (node *astNode) getChannelDepth() (int) {
 func (l *argoListener) getAllVariables() int {
 	var funcDecl *astNode
 	var identifierList,identifierR_type *astNode
-	var funcName *astNode  // AST node of the function and function name 
+	var funcName *astNode  // AST node of the function and function name
+	var identChild *astNode // AST node for an identifier for the inferred type 
 	// the three type of declarations are: varDecl (var keyword), parameterDecls (in a function signature), and shortVarDecls (:=)
 
 	var varNameList []string
@@ -419,7 +420,7 @@ func (l *argoListener) getAllVariables() int {
 	var numBits int        // number of bits in the type
 	var depth int          // channel depth (size of the buffer) 
 	var dimensions [] int  // slice which holds array dimensions 
-
+	
 	
 	funcDecl = nil
 	funcName = nil
@@ -463,8 +464,34 @@ func (l *argoListener) getAllVariables() int {
 				identifierR_type = node.walkDownToRule("r_type")
 				
 				varTypeStr = ""; numBits = -1
+
+				// TODO: need a better function to infer the type here 
 				if identifierR_type == nil {
-					fmt.Printf("primitive type failed for node %d\n",node.id )
+					identifierR_type = node.walkDownToRule("basicLit")
+					if identifierR_type != nil {
+						identChild  =  identifierR_type.children[0]
+						numStr := identChild.ruleType
+						
+						_, err := strconv.ParseInt(numStr,0,64)
+						if err == nil {
+							varTypeStr = "int"
+							if ( (numStr[0] == byte("0"[0])) &&
+								((numStr[1] == byte("x"[0])) || (numStr[1] == byte("X"[0])))) {
+								numBits = 4*( len(numStr)-2) // make size = to number of digits 
+							} else { 
+								numBits = 32  // default size is 32 bit ints 
+							}
+						} else {
+							_, err := strconv.ParseFloat(identChild.ruleType,32)
+							if err == nil {
+								varTypeStr = "float" 
+							} else {
+								fmt.Printf("primitive type failed for node %d\n",node.id )
+							}
+						}
+ 
+					} 
+					
 				} else { 
 					varTypeStr,numBits = identifierR_type.getPrimitiveType()
 				}
@@ -593,6 +620,9 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 	funcName = funcDecl.children[1]
 	funcStr = funcName.sourceCode
 
+	if (ifNode.ruleType != "ifStmt") {
+		fmt.Printf("IF parsecall, not ifStmt! : nodeID %d\n",ifNode.id)		
+	}
 	fmt.Printf("IF parse: nodeID %d\n",ifNode.id)
 	
 	// loop for each child and create the appropriate sub-statement node
@@ -605,7 +635,11 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 			if ( (childNode.ruleType == "simpleStmt") || (childNode.ruleType == "expression") ||
 				(childNode.ruleType == "block")) {
 				childStmt = new(statementNode)
-				childStmt.id = l.nextStatementID; l.nextStatementID++
+
+				if (l.nextStatementID == 9) || (l.nextStatementID == 14) || (l.nextStatementID == 19) {
+					fmt.Printf("next statement ID is %d node %d %s\n",l.nextStatementID,childNode.id,childNode.ruleType)
+				}
+				childStmt.id = l.nextStatementID; l.nextStatementID++ 
 				childStmt.astDef = childNode
 				childStmt.astDefID =  childNode.id 
 				childStmt.funcName = funcStr
@@ -629,30 +663,48 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 
 
 			if (childNode.ruleType == "expression") {
-				testStmt = childStmt 
+				testStmt = childStmt
+				subNode =  childNode.children[0]
+				testStmt.stmtType = subNode.ruleType
+				testStmt.astSubDef = subNode 
+				testStmt.astSubDefID =  subNode.id				
 			}
 
 			// if we have  block, go down a few levels to get the statement list 
 			if  (childNode.ruleType == "block") { 
 				statementListNode := childNode.children[1] // get the list of statements in the block 
 				slist := l.getListOfStatments(statementListNode,funcDecl)
-				statements = append(statements,slist...)
+				if (len(slist) >0)  {
+					statements = append(statements,slist...)
+				}
 			}
 				
 			if (seenFirstBlock == false) && (childNode.ruleType == "block") {
 				takenStmt = childStmt
-				seenFirstBlock = true 
+				seenFirstBlock = true
+
+				subNode =  childNode.children[1]
+				takenStmt.stmtType = subNode.ruleType
+				takenStmt.astSubDef = subNode 
+				takenStmt.astSubDefID =  subNode.id								
 			}
 
 			if (seenFirstBlock == true) && (childNode.ruleType == "block") {
-				elseStmt = childStmt 
+				elseStmt = childStmt
+
+				subNode =  childNode.children[1]
+				elseStmt.stmtType = subNode.ruleType
+				elseStmt.astSubDef = subNode 
+				elseStmt.astSubDefID =  subNode.id
 			}
 
 			if (childNode.ruleType == "ifStmt") {
 				ifSubStmtNode = childNode 
 				subIfStmt = childStmt
 				slist := l.parseIfStmt(ifSubStmtNode,funcDecl,subIfStmt)
-				statements = append(statements,slist...)
+				if (len(slist) >0) { 
+					statements = append(statements,slist...)
+				}
 			}
 
 			childNode.visited = true 
@@ -743,7 +795,7 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 	
 	for i, childnode := range listnode.children { // for each statement in the statementlist
 
-		fmt.Printf("List child %d: ID:%d rule %s at(%d %d) \n",i,childnode.id,childnode.ruleType,childnode.sourceLineStart,childnode.sourceColStart)		
+	
 		subNode = nil
 		// go one level down to skip the variable declaration statements
 		if (len(childnode.children) > 0) { 
@@ -752,6 +804,7 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 			// skip decls 
 			if (subNode.ruleType != "declaration" )&& (subNode.ruleType != ";") && (len(subNode.children) >0) {
 
+				fmt.Printf("List child %d: ID:%d rule %s at(%d %d) \n",i,childnode.id,childnode.ruleType,childnode.sourceLineStart,childnode.sourceColStart)		
 				// simple statements have to go one level down to get the actual type 
 				if (subNode.ruleType == "simpleStmt") { 
 					stmtTypeNode = subNode.children[0]
@@ -760,11 +813,9 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 					stmtTypeNode = subNode
 				}
 				
-				if (i>=0 ) {
-					fmt.Printf("Got rule %s in func %s ID %d at (%d,%d) \n",stmtTypeNode.ruleType,funcStr,stmtTypeNode.id,stmtTypeNode.sourceLineStart,stmtTypeNode.sourceColStart)
-				}
 				// create a new statement node if we have not visited the originating AST statement node
-				if (childnode.visited == false ){  
+				if (childnode.visited == false ){
+					fmt.Printf("not visited, child %d rule %s in func %s ID %d at (%d,%d) \n",i,stmtTypeNode.ruleType,funcStr,stmtTypeNode.id,stmtTypeNode.sourceLineStart,stmtTypeNode.sourceColStart)
 					stateNode = new(statementNode)
 					stateNode.id = l.nextStatementID; l.nextStatementID++
 					stateNode.astDef = childnode
@@ -795,7 +846,9 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 				case "fallthroughStmt":
 				case "ifStmt":
 					subList = l.parseIfStmt(stmtTypeNode,funcDecl,stateNode)
-					statementList = append(statementList,subList...)
+					if (len(subList) > 0) {
+						statementList = append(statementList,subList...)
+					}
 				case "switchStmt":
 				case "selectStmt":
 				case "forStmt":

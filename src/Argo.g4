@@ -339,6 +339,8 @@ basicLit
     : INT_LIT
     | FLOAT_LIT
     | STRING_LIT
+    | HEX_LIT
+    | OCTAL_LIT
     ;
 
 operandName
