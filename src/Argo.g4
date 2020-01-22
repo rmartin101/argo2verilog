@@ -4,7 +4,7 @@ grammar Argo;
 // Rules
 
 sourceFile
-    : packageClause eos ( importClause eos )* ( functionDecl eos )*
+    : packageClause eos ( importClause eos )* ( functionDecl eos )* 
     ;
 
 packageClause

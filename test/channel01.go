@@ -48,6 +48,7 @@ func main() {
 	i = 1   ;
 	j = m2[2];
 	k = (i + j) * snafu(dead,m0) ;
+	// launh a go statement in parallel 
 	go fubar(doneThis,k) ; 
 
 	if  10*k < (2+dead+l)  {
@@ -68,6 +69,7 @@ func main() {
 		k = i + k;
 	}; 
 
+	// receive data on the channel 
 	dead = <- doneThis; 
 	fmt.Printf("dead is %d \n", dead) ;	
 	
