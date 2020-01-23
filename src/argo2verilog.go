@@ -698,7 +698,7 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 
 			// create a new node and populate it, set the type later 
 			if ( (childNode.ruleType == "simpleStmt") || (childNode.ruleType == "expression") ||
-				(childNode.ruleType == "block")) {
+				(childNode.ruleType == "block") || (childNode.ruleType == "ifStmt") ) {
 				childStmt = new(statementNode)
 				
 				childStmt.id = l.nextStatementID; l.nextStatementID++ 
@@ -754,7 +754,6 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 				elseStmt = childStmt
 				seenBlockCount = 2
 				
-
 				subNode =  childNode.children[1]
 				elseStmt.stmtType = subNode.ruleType
 				elseStmt.astSubDef = subNode 
@@ -855,9 +854,10 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 	var subNode *astNode  // current statement node
 	var stmtTypeNode *astNode // which simpleStmt type is this?, e.g ifStmt, shortVarDecl, forStmt.
 	var statementList []*statementNode
+	var statements []*statementNode 
 	var predecessorStmt *statementNode 
 	var stateNode *statementNode
-
+	
 	//var numChildren int
 	
 	if (len(funcDecl.children) < 2) {  // need assertions here 
@@ -895,11 +895,6 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 					fmt.Printf("not visited, child %d rule %s in func %s ID %d at (%d,%d) \n",i,stmtTypeNode.ruleType,funcStr,stmtTypeNode.id,stmtTypeNode.sourceLineStart,stmtTypeNode.sourceColStart)
 					stateNode = new(statementNode)
 
-					// attach the predecessor to the newly generated node
-					if (predecessorStmt != nil) {
-						predecessorStmt.addSuccessor(stateNode)
-						stateNode.addPredecessor(predecessorStmt) 
-					}						
 
 					stateNode.id = l.nextStatementID; l.nextStatementID++
 					stateNode.astDef = childnode
@@ -918,9 +913,16 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 					stateNode.forPost = nil
 					stateNode.caseList = nil
 					
-					statementList = append(statementList, stateNode)
 					childnode.visited = true
 
+					// attach the predecessor to the newly generated node
+					if (predecessorStmt != nil) {
+						predecessorStmt.addSuccessor(stateNode)
+						stateNode.addPredecessor(predecessorStmt)
+					}
+
+					statementList = append(statementList, stateNode)
+					
 					// Get sub statement lists for this node
 					switch stateNode.stmtType { 
 					case "declaration": 
@@ -933,6 +935,11 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 					case "gotoStmt":
 					case "fallthroughStmt":
 					case "ifStmt":
+						statements = l.parseIfStmt(subNode,funcDecl,stateNode)
+						if (len(statements) >0) {
+							statementList = append(statementList,statements...)
+						}
+						
 					case "switchStmt":
 					case "selectStmt":
 					case "forStmt":
@@ -1157,7 +1164,7 @@ func (l *argoListener) printStatementGraph() {
 		case "gotoStmt":
 		case "fallthroughStmt":
 		case "ifStmt":
-			fmt.Printf("simple: %d test: %d taken %d else %d\n",node.ifSimpleID(),node.ifTestID(),node.ifTakenID(),node.ifElseID())
+			fmt.Printf("simple: %d test: %d taken %d else %d ",node.ifSimpleID(),node.ifTestID(),node.ifTakenID(),node.ifElseID())
 		case "switchStmt":
 		case "selectStmt":
 		case "forStmt":
@@ -1169,8 +1176,10 @@ func (l *argoListener) printStatementGraph() {
 		case "emptyStmt":
 
 		default:
-			fmt.Printf("\n")		
+			pass()
 		}
+
+		fmt.Printf("\n")		
 	}
 }
 
