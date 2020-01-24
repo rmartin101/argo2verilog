@@ -694,6 +694,9 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 	ifNode.visited = true 
 	for _, childNode := range ifNode.children {
 
+		childStmt = nil
+		// note the child statement can be nil around this loop if the type is not one of
+		// simpleStmt, expression, block of ifStmt
 		if (childNode.visited == false) {
 
 			// create a new node and populate it, set the type later 
@@ -707,6 +710,7 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 				childStmt.funcName = funcStr
 				childStmt.sourceRow =  childNode.sourceLineStart 
 				childStmt.sourceCol =  childNode.sourceColStart
+				statements = append(statements,childStmt)
 			}
 
 			// set the node type 
@@ -740,9 +744,9 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 				if (len(slist) >0)  {
 					statements = append(statements,slist...)
 					// connect the taken of else clause back to this node 
-					childStmt.successors = slist // add the resulting statements to the list
 					head := slist[0]
 					head.addPredecessor(childStmt)
+					childStmt.addSuccessor(head)
 				}
 				
 
@@ -774,7 +778,6 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 
 			}
 
-			
 			// this is the if () {block } else if {} construct when the else is an if statement 
 			if (childNode.ruleType == "ifStmt") {
 
@@ -788,10 +791,11 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 					statements = append(statements,slist...)
 					head := slist[0] 
 					head.addPredecessor(childStmt)
+					subIfStmt.addSuccessor(head)
 				}
+			
 			}
 
-			childNode.visited = true 
 		} // end if not visited 
 		
 	} // end for children of isStmt 
@@ -805,7 +809,6 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 	} else if (elseStmt != nil) {
 		ifStmt.ifElse = elseStmt 
 	}
-	
 
 	// Assertions that must hold for every if statements 
 	if (testStmt == nil) {
@@ -824,7 +827,29 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 		fmt.Printf("Error! both else and if sub-statement set AST node id %d\n", ifNode.id)
 		fmt.Printf("Error! statement len %d %s\n",len(statements),statements)		
 	}
-	
+
+	if (simpleStmt != nil) {
+		simpleStmt.addPredecessor(ifStmt)
+		ifStmt.addSuccessor(simpleStmt)
+
+		simpleStmt.addSuccessor(testStmt)
+		testStmt.addPredecessor(simpleStmt)
+	}
+
+
+	testStmt.addSuccessor(takenStmt)
+	takenStmt.addPredecessor(testStmt)
+
+	if (elseStmt != nil) {
+		testStmt.addSuccessor(testStmt)
+		elseStmt.addPredecessor(testStmt)
+	}
+
+	if (subIfStmt != nil) {
+		testStmt.addSuccessor(subIfStmt)
+		subIfStmt.addPredecessor(testStmt)		
+	}
+
 	return statements 
 }
 
@@ -921,8 +946,6 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 						stateNode.addPredecessor(predecessorStmt)
 					}
 
-					statementList = append(statementList, stateNode)
-					
 					// Get sub statement lists for this node
 					switch stateNode.stmtType { 
 					case "declaration": 
@@ -954,6 +977,7 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 						fmt.Printf("Major error: no such statement type\n")
 					}
 
+					statementList = append(statementList, stateNode)
 					predecessorStmt = statementList[len(statementList)-1] ;
 					
 				} // end if visited == false 
@@ -1131,6 +1155,11 @@ func (l *argoListener) printVarNodes() {
 
 func (l *argoListener) printStatementGraph() {
 	var j int
+
+	// sort by id number 
+	sort.Slice(l.statementGraph, func(i, j int) bool {
+		return l.statementGraph[i].id < l.statementGraph[j].id
+	})
 	
 	for i, node := range l.statementGraph {
 		fmt.Printf("got statement index %d: ID:%d at (%d,%d) type:%s pred: ", i,node.id, node.sourceRow, node.sourceCol, node.stmtType)
