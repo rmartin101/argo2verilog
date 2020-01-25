@@ -32,8 +32,9 @@ func main() {
 		k = i + i;
 		fmt.Printf("K is: %d \n", k) ;
 	} else {
-		j = 7 ;
-		fmt.Printf("I and J are:: %d %d  \n", k,j) ;
+		if (j == 7) {
+			fmt.Printf("I and J are:: %d %d  \n", k,j) ;
+		};
 	} ;
 
 	// if with a simple statement at the begining

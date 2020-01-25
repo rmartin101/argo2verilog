@@ -188,6 +188,30 @@ type statementNode struct {
 	visited        bool             // flag for if this node is visited
 }
 
+
+type ArgoErrorListener struct {
+	syntaxErrors int
+	ambiErrors int
+	contextErrors int
+	sensitivityErrors int 
+}
+
+func (l *ArgoErrorListener) SyntaxError(recognizer antlr.Recognizer, offendingSymbol interface{}, line, column int, msg string, e antlr.RecognitionException) {
+	l.syntaxErrors += 1
+}
+
+func (l *ArgoErrorListener) ReportAmbiguity(recognizer antlr.Parser, dfa *antlr.DFA, startIndex, stopIndex int, exact bool, ambigAlts *antlr.BitSet, configs antlr.ATNConfigSet) {
+	l.ambiErrors += 1
+}
+
+func (l *ArgoErrorListener) ReportAttemptingFullContext(recognizer antlr.Parser, dfa *antlr.DFA, startIndex, stopIndex int, conflictingAlts *antlr.BitSet, configs antlr.ATNConfigSet) {
+	l.contextErrors += 1
+}
+func (l *ArgoErrorListener) ReportContextSensitivity(recognizer antlr.Parser, dfa *antlr.DFA, startIndex, stopIndex, prediction int, configs antlr.ATNConfigSet) {
+	l.sensitivityErrors += 1
+}
+
+
 func (node *statementNode) addSuccessor(succ *statementNode) {
 	if (succ == nil ) {
 		return 
@@ -1419,10 +1443,14 @@ func parseArgo(fname *string) *argoListener {
 	input, err := antlr.NewFileStream(*fname)
 	
 	lexer := parser.NewArgoLexer(input)
-	stream := antlr.NewCommonTokenStream(lexer,0)
+	errorCount := new(ArgoErrorListener)
+	lexer.AddErrorListener(errorCount)
 	
-	p := parser.NewArgoParser(stream)
+	stream := antlr.NewCommonTokenStream(lexer,0)
 
+	p := parser.NewArgoParser(stream)
+	p.AddErrorListener(errorCount)
+	
 	listener.recog = p
 	progLines, err2 := getFileLines(*fname)
 	if (err2 != nil) {
@@ -1453,7 +1481,11 @@ func parseArgo(fname *string) *argoListener {
 	// Finally parse the expression (by walking the tree)
 	antlr.ParseTreeWalkerDefault.Walk(&listener, p.SourceFile())
 	
+	if (errorCount.syntaxErrors > 0) {
+		fmt.Printf("Parsing of program halted due to syntax errors \n");
+		os.Exit(1)
 
+	}
 	return &listener 
 }
 
@@ -1461,14 +1493,16 @@ func main() {
 	var parsedProgram *argoListener 
 	var inputFileName_p *string
 	var printASTasGraphViz_p,printVarNames_p *bool
-
+	
 	printASTasGraphViz_p = flag.Bool("gv",false,"print AST in GraphViz format")
 	printVarNames_p = flag.Bool("vars",false,"print all variables")
 	inputFileName_p = flag.String("i","input.go","input file name")
 
 	flag.Parse()
 
+
 	parsedProgram = parseArgo(inputFileName_p)
+
 	parsedProgram.getAllVariables()
 
 	if (*printASTasGraphViz_p) {
