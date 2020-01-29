@@ -1,5 +1,4 @@
 /* Argo to Verilog Compiler 
-
     (c) 2019, Richard P. Martin and contributers 
     
     This program is free software: you can redistribute it and/or modify
@@ -61,6 +60,7 @@ import (
 const NOTSPECIFIED = -1   // not specified, e.g. channel or map size 
 const PARAMETER = -2      // variable is a parameter 
 
+// force some control flow in some statements 
 func pass() {
 
 }
@@ -92,7 +92,8 @@ func assert(test bool, message string, location string, stackTrace bool) {
 		panic(message)
 	}
 }
-// get the file name and line number of the file 
+// get the file name and line number of the file of this source code for
+// error reporting 
 func _file_line_() string {
     _, fileName, fileLine, ok := runtime.Caller(1)
     var s string
@@ -124,13 +125,16 @@ type astNode struct {
 // this is for the list of functions
 type functionNode struct {
 	id int               // ID of the function 
-	funceName string     // name of the function
+	funcName string     // name of the function
 	fileName  string     // name of the source file 
 	sourceRow  int        // row in the source code
 	sourceCol  int        // column in the source code
 	parameters  []*variableNode   // list of the variables that are parameters to this function
+	parameterIDs []int            // list of variable node IDs 
 	retVars    []*variableNode   // list of return variables
+	retVarsIDs    []int         // list of return variables IDs 
 	callers []*statementNode  // list of statements calling this function
+	goCalls []*statementNode  // list of statements calling this function
 }
 	
 // this is the object that holds a variable state 
@@ -140,6 +144,7 @@ type variableNode struct {
 	astDefNum  int        // ID of the astNode parent definition
 	astClass    string    // originating class
 	isParameter bool      // is the a parameter to a function
+	isResult bool      // is this a generated return value for the function
 	goLangType  string    // numberic, channel, array or map 
 	sourceName string     // name in the source code
 	sourceRow  int        // row in the source code
@@ -184,35 +189,14 @@ type statementNode struct {
 	forTest   *statementNode     // the for test expression 
 	forPost   *statementNode      // the for post-statement 
 	caseList   [][]*statementNode  // list of statements for a switch or select statement
-	subStmtGoto    *statementNode   // target of a goto 
+	callTarget *statementNode     // regular caller target statement (funcDecl) 
+	goTarget   *statementNode     // target of go statemetn (funcDecl)
+	returnTarget []*statementNode  // list of return targets 
 	visited        bool             // flag for if this node is visited
 }
 
-
-type ArgoErrorListener struct {
-	syntaxErrors int
-	ambiErrors int
-	contextErrors int
-	sensitivityErrors int 
-}
-
-func (l *ArgoErrorListener) SyntaxError(recognizer antlr.Recognizer, offendingSymbol interface{}, line, column int, msg string, e antlr.RecognitionException) {
-	l.syntaxErrors += 1
-}
-
-func (l *ArgoErrorListener) ReportAmbiguity(recognizer antlr.Parser, dfa *antlr.DFA, startIndex, stopIndex int, exact bool, ambigAlts *antlr.BitSet, configs antlr.ATNConfigSet) {
-	l.ambiErrors += 1
-}
-
-func (l *ArgoErrorListener) ReportAttemptingFullContext(recognizer antlr.Parser, dfa *antlr.DFA, startIndex, stopIndex int, conflictingAlts *antlr.BitSet, configs antlr.ATNConfigSet) {
-	l.contextErrors += 1
-}
-func (l *ArgoErrorListener) ReportContextSensitivity(recognizer antlr.Parser, dfa *antlr.DFA, startIndex, stopIndex, prediction int, configs antlr.ATNConfigSet) {
-	l.sensitivityErrors += 1
-}
-
-
-func (node *statementNode) addSuccessor(succ *statementNode) {
+// Functions to add links in the statement graph
+func (node *statementNode) addStmtSuccessor(succ *statementNode) {
 	if (succ == nil ) {
 		return 
 	}
@@ -221,7 +205,7 @@ func (node *statementNode) addSuccessor(succ *statementNode) {
 }
 
 
-func (node *statementNode) addPredecessor(pred *statementNode) {
+func (node *statementNode) addStmtPredecessor(pred *statementNode) {
 	if (pred == nil ) {
 		return 
 	}
@@ -231,6 +215,8 @@ func (node *statementNode) addPredecessor(pred *statementNode) {
 	return 
 }
 
+// These statements return the statement IDs for various fields in the statement node
+// so we dont have to store them in the node 
 func (node *statementNode) ifSimpleID() int {
 	if (node.ifSimple == nil) {
 		return -1
@@ -267,7 +253,6 @@ func (node *statementNode) ifElseID() int {
 	}
 }
 
-
 // a control block represents a unit of control for execution, that is, a control bit 
 // in the FPGA.
 // After making a statement CFG, we make a control block CFG of smaller units. 
@@ -277,9 +262,34 @@ type controlBlockNode struct {
 }
 
 
+// these functions return event handlers counts for the parser.
+// we care most about syntax errors, the others can occur in correct programs
+// the program stops on syntax errors 
+type ArgoErrorListener struct {
+	syntaxErrors int
+	ambiErrors int
+	contextErrors int
+	sensitivityErrors int 
+}
+
+func (l *ArgoErrorListener) SyntaxError(recognizer antlr.Recognizer, offendingSymbol interface{}, line, column int, msg string, e antlr.RecognitionException) {
+	l.syntaxErrors += 1
+}
+
+func (l *ArgoErrorListener) ReportAmbiguity(recognizer antlr.Parser, dfa *antlr.DFA, startIndex, stopIndex int, exact bool, ambigAlts *antlr.BitSet, configs antlr.ATNConfigSet) {
+	l.ambiErrors += 1
+}
+
+func (l *ArgoErrorListener) ReportAttemptingFullContext(recognizer antlr.Parser, dfa *antlr.DFA, startIndex, stopIndex int, conflictingAlts *antlr.BitSet, configs antlr.ATNConfigSet) {
+	l.contextErrors += 1
+}
+func (l *ArgoErrorListener) ReportContextSensitivity(recognizer antlr.Parser, dfa *antlr.DFA, startIndex, stopIndex, prediction int, configs antlr.ATNConfigSet) {
+	l.sensitivityErrors += 1
+}
+
+
 
 // this struct holds the state for the whole program
-
 
 type argoListener struct {
 	*parser.BaseArgoListener
@@ -298,6 +308,8 @@ type argoListener struct {
 	astNodeList []*astNode        // list of nodes of an absract syntax tree, root has id = 0 
 	varNodeList []*variableNode   // list of all variables in the program
 	varNodeNameMap map[string]*variableNode  // map of cannonical names to variable nodes
+	funcNodeList  []*functionNode     // list of functions
+	funcNameMap map[string]*functionNode  //  maps the names of the functions to the function node 
 	statementGraph   []*statementNode   // list of statement nodes. 
 }
 
@@ -396,14 +408,14 @@ func (n *astNode) getPrimitiveType() (string,int) {
 
 	// this should not happen
 	if (n == nil) {
-		fmt.Printf("Error in getPrimitive type AST node\n")
+		fmt.Printf("Error at %s in getPrimitive type AST node line \n",_file_line_())
 		return "",-1
 	}
 
 	numBits = 32 // default is 32 bits for variables 
 
 	if (len(n.children) == 0){
-		fmt.Printf("Error no children in getPrimitive type node %d\n",n.id)
+		fmt.Printf("Error at %s no children in getPrimitive type node %d\n",_file_line_(),n.id)
 		return "", -2
 	}
 
@@ -459,16 +471,15 @@ func (node *astNode) getArrayDimensions() ([] int) {
 		if arrayLenNode != nil {
 			basicLitNode = arrayLenNode.walkDownToRule("basicLit")
 			if (basicLitNode != nil) {
-				fmt.Printf("found basicLit ID %d \n",basicLitNode.id)
 				dimSize, _  = strconv.Atoi(basicLitNode.children[0].ruleType)
 				dimensions = append(dimensions,dimSize)
 			} else {
-				fmt.Printf("error: getting array dimensions AST node %d \n",node.id)
+				fmt.Printf("Error: at %s getting array dimensions AST node %d \n",_file_line_(),node.id)
 			}
 		}
 	}
 	if (dimensions == nil) {
-		fmt.Printf("error: no array dimensions found AST node %d \n",node.id)
+		fmt.Printf("Error: at %s no array dimensions found AST node %d \n",_file_line_(),node.id)
 	}
 	return dimensions 
 }
@@ -525,11 +536,10 @@ func (l *argoListener) getAllVariables() int {
 	arrayTypeNode = nil
 	channelTypeNode = nil
 
-	fmt.Printf("getAllVariables called\n")
-	
 	// for every AST node, see if it is a declaration
 	// if so, name the variable the _function_name_name
-	// for multiple instances of go functions, add the instance number 
+	// for multiple instances of go functions, add the instance number
+	astNodeLoop: 
 	for _, node := range l.astNodeList {
 		// find the enclosing function name
 		if (node.ruleType == "varDecl") || (node.ruleType == "parameterDecl") || (node.ruleType == "shortVarDecl") {
@@ -537,7 +547,7 @@ func (l *argoListener) getAllVariables() int {
 
 			funcDecl = node.walkUpToRule("functionDecl")
 			if (len(funcDecl.children) < 2) {  // need assertions here 
-				fmt.Printf("Major Error")
+				fmt.Printf("Error at %s: no function name",_file_line_())
 			}
 			funcName = funcDecl.children[1]
 			// now get the name and type of the actual declaration.
@@ -551,12 +561,29 @@ func (l *argoListener) getAllVariables() int {
 				
 				// find the list of identifiers as strings for these rules
 				identifierList = node.walkDownToRule("identifierList")
-				// get the type for this Decl rule 
+
+
+				// if the identifierList is nil and the rule is a parameterdecl
+				// these are the functions return parameters
+				// We create special hidden vars for the return values in
+				// the function parsing as the return variables 
+				// are not named variables with AST nodes 
+				if (identifierList == nil) {
+					if (node.ruleType == "parameterDecl") {
+						continue astNodeLoop ;
+					}
+					fmt.Printf("Error at %s: no identifier list",_file_line_())
+					return 0
+				}
+
+				// get the type for this Decl rule
 				identifierR_type = node.walkDownToRule("r_type")
 				
 				varTypeStr = ""; numBits = -1
 
-				// TODO: need a better function to infer the type here 
+				// if we assign a constant to a variable, we need to infer the
+				// type of the constant which becomes the type of the variable 
+				// TODO: need a better function to infer the type here
 				if identifierR_type == nil {
 					identifierR_type = node.walkDownToRule("basicLit")
 					if identifierR_type != nil {
@@ -581,7 +608,9 @@ func (l *argoListener) getAllVariables() int {
 							}
 						}
  
-					} 
+					} else {  // if there is no name, this probably a return parameterDecl. 
+                                                  // these dont have a name, so we need to make one up 
+					}
 					
 				} else { 
 					varTypeStr,numBits = identifierR_type.getPrimitiveType()
@@ -642,7 +671,8 @@ func (l *argoListener) getAllVariables() int {
 					varNode.primType = varTypeStr
 					varNode.numBits = numBits
 					varNode.visited = false
-					varNode.isParameter = false 
+					varNode.isParameter = false
+					varNode.isResult = false 
 					varNode.goLangType = "numeric"  // default 
 					if (arrayTypeNode != nil) {
 						varNode.dimensions = dimensions
@@ -711,8 +741,6 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 	funcName = funcDecl.children[1]
 	funcStr = funcName.sourceCode
 
-	fmt.Printf("IF parse: nodeID %d\n",ifNode.id)
-	
 	// loop for each child and create the appropriate sub-statement node
 	// after looping through all the children, we fix up the successors and predecessors edges
 	ifNode.visited = true 
@@ -769,8 +797,8 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 					statements = append(statements,slist...)
 					// connect the taken of else clause back to this node 
 					head := slist[0]
-					head.addPredecessor(childStmt)
-					childStmt.addSuccessor(head)
+					head.addStmtPredecessor(childStmt)
+					childStmt.addStmtSuccessor(head)
 				}
 				
 
@@ -814,8 +842,8 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 				if (len(slist) >0) { 
 					statements = append(statements,slist...)
 					head := slist[0] 
-					head.addPredecessor(childStmt)
-					subIfStmt.addSuccessor(head)
+					head.addStmtPredecessor(childStmt)
+					subIfStmt.addStmtSuccessor(head)
 				}
 			
 			}
@@ -836,42 +864,42 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 
 	// Assertions that must hold for every if statements 
 	if (testStmt == nil) {
-		fmt.Printf("Error! no test with if statement at AST node id %d\n", ifNode.id)
+		fmt.Printf("Error! at %s no test with if statement at AST node id %d\n", _file_line_(),ifNode.id)
 		return nil 
 	}
 
 	if (takenStmt == nil) {
-		fmt.Printf("Error! no taken block with if statement at AST node id %d\n", ifNode.id)
+		fmt.Printf("Error! at %s no taken block with if statement at AST node id %d\n", _file_line_(),ifNode.id)
 		return nil 
 	}
 
 
 	// santiy check, both the else an sub if statement can not be set 
 	if (elseStmt != nil) && (subIfStmt != nil) {
-		fmt.Printf("Error! both else and if sub-statement set AST node id %d\n", ifNode.id)
-		fmt.Printf("Error! statement len %d %s\n",len(statements),statements)		
+		fmt.Printf("Error! at %s both else and if sub-statement set AST node id %d\n", _file_line_(),ifNode.id)
+		fmt.Printf("Error! at %s statement len %d %s\n",_file_line_(),len(statements),statements)		
 	}
 
+	// This sets the pred and successor links for the simple statement 
 	if (simpleStmt != nil) {
-		simpleStmt.addPredecessor(ifStmt)
-		ifStmt.addSuccessor(simpleStmt)
-
-		simpleStmt.addSuccessor(testStmt)
-		testStmt.addPredecessor(simpleStmt)
+		simpleStmt.addStmtPredecessor(ifStmt)
+		simpleStmt.addStmtSuccessor(testStmt)
+		testStmt.addStmtPredecessor(simpleStmt)
 	}
 
+	// there must always be a test and taken statement 
+	testStmt.addStmtSuccessor(takenStmt)
+	takenStmt.addStmtPredecessor(testStmt)
 
-	testStmt.addSuccessor(takenStmt)
-	takenStmt.addPredecessor(testStmt)
-
+	// the else and subIf are interchangable as the 2nd clause 
 	if (elseStmt != nil) {
-		testStmt.addSuccessor(testStmt)
-		elseStmt.addPredecessor(testStmt)
+		testStmt.addStmtSuccessor(testStmt)
+		elseStmt.addStmtPredecessor(testStmt)
 	}
 
 	if (subIfStmt != nil) {
-		testStmt.addSuccessor(subIfStmt)
-		subIfStmt.addPredecessor(testStmt)		
+		testStmt.addStmtSuccessor(subIfStmt)
+		subIfStmt.addStmtPredecessor(testStmt)		
 	}
 
 	return statements 
@@ -895,8 +923,131 @@ func (l *argoListener) parseSelectStmt(selectnode *astNode,funcDecl *astNode) []
 }
 
 
+// create a return variable node. When a return happens, we store the value
+// in this generated variable and treat the return as an expression with
+// additional control flow 
+func (l *argoListener) makeReturnVariable(identifierR_type *astNode,funcName string) *variableNode {
+	var varTypeStr string
+	var numBits int 
+	var retVarNode *variableNode
+
+	retVarNode = nil
+	varTypeStr,numBits = identifierR_type.getPrimitiveType()
+	
+	if (varTypeStr != "") {
+		retVarNode = new (variableNode)
+		retVarNode.id = l.nextVarID ; l.nextVarID++		
+		
+		lineStartStr := strconv.Itoa(identifierR_type.sourceLineStart)
+		colStartStr := strconv.Itoa(identifierR_type.sourceColStart)
+		
+		retVarNode.astDef = identifierR_type 
+		retVarNode.astDefNum = identifierR_type.id 
+		retVarNode.astClass =  identifierR_type.ruleType
+		retVarNode.funcName = funcName
+		retVarNode.sourceName  = "_" + funcName + "_" + lineStartStr + "_" + colStartStr  + "_"
+		retVarNode.sourceRow = identifierR_type.sourceLineStart
+		retVarNode.sourceCol = identifierR_type.sourceColStart
+		retVarNode.primType = varTypeStr
+		retVarNode.numBits = numBits
+		retVarNode.visited = false
+		retVarNode.isParameter = false
+		retVarNode.isResult = true 
+		retVarNode.goLangType = "numeric"  // default
+
+		l.varNodeList = append(l.varNodeList,retVarNode)
+		
+		
+	} else {
+		fmt.Printf("Error: at %s no type information for return variable\n",_file_line_())		
+	}
+	return retVarNode
+}
+
+// get a list of all the functions
+// assumes variables are already parsed to look up the parameters 
+func (l *argoListener) getAllFunctions() {
+	var funcName *astNode    // name of the function -- AST node 
+	var funcStr string       // name of the function as a string. Must be unique
+	var resultNode *astNode  // node for the result 
+	var retParams *astNode    // the parameters for the return values for a function call
+	var identifierR_type *astNode  // node for getting the primitive type 
+	var fNode *functionNode   // node of the function we are creating 
+
+	var retVarNode *variableNode // the variable node for the return value 
+	
+	// get parameters assumes we have the variables already parsed
+	if (len(l.varNodeList) <= 0) {
+		fmt.Printf("Error: at %s, warning no variables in getallfunctions\n",_file_line_())
+	}
+
+	for i, funcDecl := range l.astNodeList {
+		if (funcDecl.ruleType == "functionDecl") {
+			if (len(funcDecl.children) < 2) {  // need assertions here 
+				fmt.Printf("Error at %s: %d no function name",_file_line_(),i)
+			}
+			funcName = funcDecl.children[1]
+			funcStr = funcName.ruleType
+			fmt.Printf("got function %d name %s \n",i,funcStr)
+			if (len(funcStr) > 0) {
+				fNode = new(functionNode)
+				fNode.id = l.nextFuncID; l.nextFuncID++
+				fNode.funcName = funcStr
+				fNode.sourceRow = funcName.sourceLineStart
+				fNode.sourceCol = funcName.sourceColStart
+				l.funcNameMap[funcStr] = fNode
+
+				// get the parameters 
+				for _, varNode := range (l.varNodeList) {
+					if ((varNode.funcName == fNode.funcName) && (varNode.isParameter) ) {
+						fNode.parameters = append(fNode.parameters,varNode)
+						fNode.parameterIDs = append(fNode.parameterIDs,varNode.id)
+					}
+				}
+				// get the return values and add them to the list of variables
+				resultNode = funcDecl.walkDownToRule("result")
+				if (resultNode != nil) { 
+					retParams = resultNode.walkDownToRule("parameterList")
+
+					if (retParams == nil) { // this is case we have single parameter
+						identifierR_type = resultNode.walkDownToRule("r_type")
+						retVarNode =  l.makeReturnVariable(identifierR_type,funcStr)
+
+					} else { // we have a parameter list 
+						for _, typeNode := range retParams.children {
+							identifierR_type = typeNode.walkDownToRule("r_type")
+							retVarNode =  l.makeReturnVariable(identifierR_type,funcStr)
+							if (retVarNode == nil) {
+								fmt.Printf("Error making return var node\n")
+							}
+						}
+					}
+					
+				} else {
+					// function does not have any results 
+				}
+				
+			} else {	
+				fmt.Printf("Error at %s: AST node %d zero length function name\n",_file_line_(),i)
+			}
+			
+		}
+	}
+}
+
+// get both the forward and backward edges for function calls in the statement graph 
+func (l *argoListener) getCallsandReturns() {
+
+	}
+
+
+// get the list of go routines and add edges in the statement graph 
+func (l *argoListener) getGoRoutines() {
+
+}
+
 // Given a statementlist, return a list of statementNodes
-// Uses recursion to follow if and for statements
+// Uses recursion to follow if and for, case and select statements
 func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) []*statementNode {
 	var funcName *astNode  // name of the function for the current statement
 	var funcStr  string   //  string name of the function
@@ -915,12 +1066,12 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 	funcName = funcDecl.children[1]
 	funcStr = funcName.sourceCode
 	
-	fmt.Printf("List called: statementList at %s ID:%d  at(%d %d) \n",listnode.ruleType, listnode.id,listnode.sourceLineStart,listnode.sourceColStart)
+
 	// top level traversal of the statement list
 
 	predecessorStmt = nil
 	//numChildren = len(listnode.children) 
-	for i, childnode := range listnode.children { // for each statement in the statementlist
+	for _, childnode := range listnode.children { // for each statement in the statementlist
 
 		// go one level down to skip the variable declaration statements
 		if (len(childnode.children) > 0) {
@@ -930,20 +1081,16 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 			// skip decls 
 			if (subNode.ruleType != "declaration" )&& (subNode.ruleType != ";") && (len(subNode.children) >0) {
 
-				fmt.Printf("List child %d: ID:%d rule %s at(%d %d) \n",i,childnode.id,childnode.ruleType,childnode.sourceLineStart,childnode.sourceColStart)		
 				// simple statements have to go one level down to get the actual type 
 				if (subNode.ruleType == "simpleStmt") { 
 					stmtTypeNode = subNode.children[0]
-					fmt.Printf("List got simple statement id %d\n", stmtTypeNode.id)
 				} else { 
 					stmtTypeNode = subNode
 				}
 				
 				// create a new statement node if we have not visited the originating AST statement node
 				if (childnode.visited == false ){
-					fmt.Printf("not visited, child %d rule %s in func %s ID %d at (%d,%d) \n",i,stmtTypeNode.ruleType,funcStr,stmtTypeNode.id,stmtTypeNode.sourceLineStart,stmtTypeNode.sourceColStart)
 					stateNode = new(statementNode)
-
 
 					stateNode.id = l.nextStatementID; l.nextStatementID++
 					stateNode.astDef = childnode
@@ -966,8 +1113,8 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 
 					// attach the predecessor to the newly generated node
 					if (predecessorStmt != nil) {
-						predecessorStmt.addSuccessor(stateNode)
-						stateNode.addPredecessor(predecessorStmt)
+						predecessorStmt.addStmtSuccessor(stateNode)
+						stateNode.addStmtPredecessor(predecessorStmt)
 					}
 
 					// Get sub statement lists for this node
@@ -1016,17 +1163,7 @@ func (l *argoListener) getListOfStatments(listnode *astNode,funcDecl *astNode) [
 		fmt.Printf("\t \tError list is nil \n")
 		return nil 
 	}
-
-	for i, node := range statementList {
-		if (node.astSubDef == nil) {
-			astDef := node.astDef 
-			fmt.Printf("\t \treturning statements: %d stmt,ast [%d,%d] type %s \n",i,node.id, astDef.ruleType)
-		} else {
-			astSub := node.astSubDef
-			fmt.Printf("\t \treturning statements: %d stmt,astSub [%d,%d] type %s \n",i,node.id,astSub.id,astSub.ruleType)
-		}
-
-	}
+	
 	return statementList 
 }
 
@@ -1065,11 +1202,10 @@ func (l *argoListener) getStatementGraph() int {
 				fmt.Printf("Major Error")
 			}
 			funcName = funcDecl.children[1]
-			funcStr = funcName.sourceCode
+			funcStr = funcName.ruleType // RPM-was sourcecode 
 			// We need to include function declarations in the statement graph because
 			// they are the place node of copying in the arguments in the graph.
 			if (funcDecl.visited == false ) {
-				fmt.Printf("Graph: AST Node %d not visited \n",astnode.id)
 				entryNode = new(statementNode)
 				entryNode.id = l.nextStatementID; l.nextStatementID++
 				entryNode.astDef = funcDecl
@@ -1090,14 +1226,15 @@ func (l *argoListener) getStatementGraph() int {
 
 				// fix the predecessor/successor edges 
 				if ( len(statements) > 1) {
-					entryNode.addSuccessor(statements[1])
+					entryNode.addStmtSuccessor(statements[1])
 					nextHead := statements[1]
-					nextHead.addPredecessor(entryNode)
+					nextHead.addStmtPredecessor(entryNode)
 				}
 
 
 			} else {
-				fmt.Printf("Graph: AST Node %d was visited \n",astnode.id)
+				//fmt.Printf("Graph: AST Node %d was visited \n",astnode.id)
+				pass()
 			}
 			
 		}
@@ -1158,9 +1295,9 @@ func (l *argoListener) printASTnodes(outputStyle string) {
 func (l *argoListener) printVarNodes() {
 
 	for _, node := range l.varNodeList {
-		fmt.Printf("Variable:%d name:%s func:%s pos:(%d,%d) class:%s prim:%s size:%d param:%t ",
+		fmt.Printf("Variable:%d name:%s func:%s pos:(%d,%d) class:%s prim:%s size:%d param:%t result:%t ",
 			node.id,node.sourceName,node.funcName,node.sourceRow,node.sourceCol,
-			node.goLangType,node.primType, node.numBits,node.isParameter)
+			node.goLangType,node.primType, node.numBits,node.isParameter,node.isResult)
 		switch (node.goLangType) {
 
 		case "array":
@@ -1177,6 +1314,7 @@ func (l *argoListener) printVarNodes() {
 	}
 }
 
+// print the statement graph
 func (l *argoListener) printStatementGraph() {
 	var j int
 
@@ -1186,7 +1324,7 @@ func (l *argoListener) printStatementGraph() {
 	})
 	
 	for i, node := range l.statementGraph {
-		fmt.Printf("got statement index %d: ID:%d at (%d,%d) type:%s pred: ", i,node.id, node.sourceRow, node.sourceCol, node.stmtType)
+		fmt.Printf("Stmt: %d: ID:%d at (%d,%d) type:%s pred: ", i,node.id, node.sourceRow, node.sourceCol, node.stmtType)
 		// assertion checks:
 		if (len(node.predecessors) != len(node.predIDs)) {
 			fmt.Printf("Error: length of precedessors does not match %d %d \n",len(node.predecessors),len(node.predIDs))
@@ -1438,8 +1576,10 @@ func (l *argoListener) EnterImportClause(c *parser.ImportClauseContext) {
 func parseArgo(fname *string) *argoListener {
 
 	var err error
-	var listener argoListener
+	var listener *argoListener
 
+	listener = new(argoListener)
+	
 	input, err := antlr.NewFileStream(*fname)
 	
 	lexer := parser.NewArgoLexer(input)
@@ -1467,6 +1607,9 @@ func parseArgo(fname *string) *argoListener {
 
 	listener.nextStatementID = 0
 	listener.nextBlockID = 0
+
+	listener.funcNameMap = make(map[string]*functionNode)
+	
 	listener.logIt.flags = make(map[string]bool,16)
 	listener.logIt.init()
 	listener.logIt.flags["MIN"] = true
@@ -1479,32 +1622,34 @@ func parseArgo(fname *string) *argoListener {
 	listener.logIt.DbgLog("MIN","testing the log %d %d %d \n",5,10,20)
 	
 	// Finally parse the expression (by walking the tree)
-	antlr.ParseTreeWalkerDefault.Walk(&listener, p.SourceFile())
+	antlr.ParseTreeWalkerDefault.Walk(listener, p.SourceFile())
 	
 	if (errorCount.syntaxErrors > 0) {
 		fmt.Printf("Parsing of program halted due to syntax errors \n");
 		os.Exit(1)
 
 	}
-	return &listener 
+	return listener
 }
 
 func main() {
 	var parsedProgram *argoListener 
 	var inputFileName_p *string
-	var printASTasGraphViz_p,printVarNames_p *bool
+	var printASTasGraphViz_p,printVarNames_p,printStmtGraph_p *bool
 	
 	printASTasGraphViz_p = flag.Bool("gv",false,"print AST in GraphViz format")
 	printVarNames_p = flag.Bool("vars",false,"print all variables")
+	printStmtGraph_p = flag.Bool("stmt",false,"print statement graph")
 	inputFileName_p = flag.String("i","input.go","input file name")
 
 	flag.Parse()
 
 
 	parsedProgram = parseArgo(inputFileName_p)
-
-	parsedProgram.getAllVariables()
-
+	parsedProgram.getAllVariables()  // must call get all variables first 
+	parsedProgram.getAllFunctions()  // then get all functions 
+	parsedProgram.getStatementGraph()  // now make the statementgraph 
+	
 	if (*printASTasGraphViz_p) {
 		parsedProgram.printASTnodes("rawWithText")
 		//parsedProgram.printASTnodes("dotShort")
@@ -1514,8 +1659,11 @@ func main() {
 		parsedProgram.printVarNodes()
 		
 	}
-	
-	parsedProgram.getStatementGraph()
-	parsedProgram.printStatementGraph()	
 
+	if (*printStmtGraph_p) {
+		parsedProgram.printStatementGraph()	
+	}
+
+
+	
 }

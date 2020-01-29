@@ -9,7 +9,11 @@ func blammo(i,j int) int {
 	if (i <= j) {
 		return i*j ;
 	} ;
-	return i+j  ;
+	return i+j ;
+} ;
+
+func blargo(i int) (int64,int64) {
+	return i+i, i*i ;
 } ;
 
 
@@ -25,13 +29,16 @@ func main() {
 		fmt.Printf("I is less than J \n") ;		
 	} ;
 
-
+	
 	// if with an else 
 	if  (k >= (i + 3)) {
 		i = 4;
 		k = i + i;
+		k,i = blargo(j);
 		fmt.Printf("K is: %d \n", k) ;
 	} else {
+		i = 4;
+		j = i + 3 ;
 		if (j == 7) {
 			fmt.Printf("I and J are:: %d %d  \n", k,j) ;
 		};
