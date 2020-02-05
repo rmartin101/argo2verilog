@@ -29,7 +29,7 @@ func main() {
 	var m0 [55]int;
 	var m1 [11][22]int64;
 	
-	doneThis := make(chan int) ;
+	doneThis := make(chan int,10) ;
 	m2 := make(map[int] int);
 
 	// arrays 
