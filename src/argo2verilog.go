@@ -217,7 +217,8 @@ func (node *statementNode) addStmtPredecessor(pred *statementNode) {
 }
 
 // These statements return the statement IDs for various fields in the statement node
-// so we dont have to store them in the node 
+// so we dont have to store them in the node
+// If statement branchs to IDs 
 func (node *statementNode) ifSimpleID() int {
 	if (node.ifSimple == nil) {
 		return -1
@@ -250,6 +251,43 @@ func (node *statementNode) ifElseID() int {
 		return -1
 	} else {
 		s := node.ifElse
+		return s.id
+	}
+}
+
+// For statement branchs to IDs 
+func (node *statementNode) forInitID() int {
+	if (node.forInit == nil) {
+		return -1
+	} else {
+		s := node.forInit
+		return s.id
+	}
+}
+
+func (node *statementNode) forCondID() int {
+	if (node.forCond == nil) {
+		return -1
+	} else {
+		s := node.forCond
+		return s.id
+	}
+}
+
+func (node *statementNode) forPostID() int {
+	if (node.forPost == nil) {
+		return -1
+	} else {
+		s := node.forPost
+		return s.id
+	}
+}
+
+func (node *statementNode) forBlockID() int {
+	if (node.forBlock == nil) {
+		return -1
+	} else {
+		s := node.forBlock
 		return s.id
 	}
 }
@@ -1510,6 +1548,7 @@ func (l *argoListener) printStatementGraph() {
 		case "switchStmt":
 		case "selectStmt":
 		case "forStmt":
+			fmt.Printf("init: %d cond: %d post %d block %d ",node.forInitID(),node.forCondID(),node.forPostID(),node.forBlockID())
 		case "sendStmt":
 		case "expressionStmt":
 		case "incDecStmt":
