@@ -32,8 +32,10 @@ func main() {
 
 	sum := 0x0000; 
 	for i := 1; i < k ; i = i + 1 {
-		sum = sum + i;
-		j = snafu(j,j);
+		for k := 1; k < 10; k++ {
+			sum = sum + i;
+			j = snafu(j,j);
+		};
 	}; 
 	fmt.Printf("The sum is %d \n",sum) ;
 
