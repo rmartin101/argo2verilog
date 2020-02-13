@@ -31,15 +31,18 @@ func main() {
 	k = 4 ;
 
 	sum := 0x0000; 
-	for i := 1; i < k ; i = i + 1 {
-		for k := 1; k < 10; k++ {
-			sum = sum + i;
-			j = snafu(j,j);
+	for i = 1; i < 5 ; i = i + 1 {
+		for j = 1; j < 3; j++ {
+			for z:= 0; z < k; z++ {
+				sum = sum + j  ;
+				j = snafu(j,k);
+			}; 
 		};
 	}; 
 	fmt.Printf("The sum is %d \n",sum) ;
 
 	j =  1;
+
 	for j < 5 {
 		j = j*2;
 	};
