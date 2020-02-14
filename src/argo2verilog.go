@@ -826,7 +826,7 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 
 			// create a new node and populate it, set the type later 
 			if ( (childNode.ruleType == "simpleStmt") || (childNode.ruleType == "expression") ||
-				(childNode.ruleType == "block") || (childNode.ruleType == "ifStmt") ) {
+				(childNode.ruleType == "ifStmt")) {
 				childStmt = new(statementNode)
 				childStmt.id = l.nextStatementID; l.nextStatementID++ 
 				childStmt.astDef = childNode
@@ -897,6 +897,8 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 
 			// this is the if () {block } else if {} construct when the else is an if statement 
 			if (childNode.ruleType == "ifStmt") {
+				ifSubStmtNode = childNode
+				subIfStmt = childStmt
 				blocklist = l.parseIfStmt(ifSubStmtNode,funcDecl,subIfStmt)
 				if (len(blocklist) >0) {
 					elseHead = blocklist[0]
