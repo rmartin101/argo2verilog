@@ -227,6 +227,11 @@ func (node *statementNode) addStmtPredecessor(pred *statementNode) {
 	return 
 }
 
+func (node *statementNode) setStmtPredNil() {
+	node.predecessors = nil
+	node.predIDs = nil
+}
+
 // These statements return the statement IDs for various fields in the statement node
 // so we dont have to store them in the node
 // If statement branchs to IDs 
@@ -799,7 +804,7 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 	
 	var seenBlockCount int;             // Counts blocks in the children. First It is the taken branch, second the else 
 	var statements []*statementNode       // list of statmements 
-	var slist []*statementNode          // list of statements for the block 
+	var blocklist []*statementNode          // list of statements for the block 
 	childStmt = nil; simpleStmt = nil;  testStmt = nil; takenStmt = nil; elseStmt = nil; subIfStmt = nil 
 	
 	seenBlockCount = 0
@@ -834,7 +839,6 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 				// add this to the global list of statements 
 				l.statementGraph = append(l.statementGraph,childStmt)
 				
-				statements = append(statements,childStmt)
 			}
 
 			// set the node type 
@@ -860,14 +864,14 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 			// also fix up the child to go to the statement, not the statementlist 
 			if  (childNode.ruleType == "block") { 
 				statementListNode := childNode.children[1] // get the list of statements in the block 
-				slist = l.getListOfStatments(statementListNode,ifStmt,funcDecl)
-
+				blocklist = l.getListOfStatements(statementListNode,ifStmt,funcDecl)
+				
 				// get the list of statements from the statementlist 
-				if (len(slist) >0)  {
+				if (len(blocklist) >0)  {
 					// statements = append(statements,slist...) dont make global list 
 					// connect the taken of else clause back to this node 
-					headStmt = slist[0]
-					tailStmt = slist[len(slist)-1] 
+					headStmt = blocklist[0]
+					tailStmt = blocklist[len(blocklist)-1] 
 				}
 				
 
@@ -876,14 +880,8 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 
 			// this is the else block, unless the else is another if statement 
 			if (seenBlockCount == 1)  && (childNode.ruleType == "block") {
-				elseStmt = childStmt
+				elseStmt = headStmt
 				seenBlockCount = 2
-				
-				subNode =  childNode.children[1]
-				elseStmt.stmtType = subNode.ruleType
-				elseStmt.astSubDef = subNode 
-				elseStmt.astSubDefID =  subNode.id
-
 				elseHead = headStmt
 				elseTail = tailStmt 
 			}
@@ -891,33 +889,21 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 			// this is the taken branch block
 			// this has to come after the previous statement to make this work 
 			if (seenBlockCount == 0) && (childNode.ruleType == "block") {
-				takenStmt = childStmt
+				takenStmt = headStmt
 				seenBlockCount = 1 
-
-				subNode =  childNode.children[1]
-				takenStmt.stmtType = subNode.ruleType
-				takenStmt.astSubDef = subNode 
-				takenStmt.astSubDefID =  subNode.id
-
 				takenHead = headStmt
-				takenTail = tailStmt 
+				takenTail = tailStmt
 			}
 
 			// this is the if () {block } else if {} construct when the else is an if statement 
 			if (childNode.ruleType == "ifStmt") {
-
-				ifSubStmtNode = childNode 
-				subIfStmt = childStmt
-				subIfStmt.stmtType = childNode.ruleType
-				subIfStmt.astSubDef = nil 
-				subIfStmt.astSubDefID = -1
-				slist := l.parseIfStmt(ifSubStmtNode,funcDecl,subIfStmt)
-				if (len(slist) >0) { 
-					elseHead = slist[0]
-					elseTail = slist[len(slist)-1] 
+				blocklist = l.parseIfStmt(ifSubStmtNode,funcDecl,subIfStmt)
+				if (len(blocklist) >0) {
+					elseHead = blocklist[0]
+					elseStmt = elseHead 
+					elseTail = blocklist[len(blocklist)-1]
 				}
 			}
-
 		} // end if not visited 
 		
 	} // end for children of isStmt 
@@ -926,6 +912,7 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 	ifStmt.ifSimple = simpleStmt
 	ifStmt.ifTest = testStmt
 	ifStmt.ifTaken = takenStmt
+
 	if (subIfStmt != nil) {
 		ifStmt.ifElse = subIfStmt
 	} else if (elseStmt != nil) {
@@ -952,14 +939,19 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 
 	// This sets the pred and successor links for the simple statement 
 	if (simpleStmt != nil) {
+				
+		statements = append(statements,simpleStmt)
+
 		simpleStmt.addStmtSuccessor(testStmt)
 		testStmt.addStmtPredecessor(simpleStmt)
 	}
 
-	// there must always be a test and taken statement 
+	// there must always be a test and taken statement
+	statements = append(statements,testStmt)
 	testStmt.addStmtSuccessor(takenStmt)
 	takenStmt.addStmtPredecessor(testStmt)
-
+	statements = append(statements,takenStmt)
+	
 	// the else and subIf are interchangable as the 2nd clause 
 	if (elseStmt != nil) {
 		testStmt.addStmtSuccessor(testStmt)
@@ -972,7 +964,8 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 	}
 
 	if (takenHead != nil) || (takenTail != nil) || (elseHead != nil) || (elseTail !=nil) {
-		fmt.Printf("IF statement at %s statement len %d \n",_file_line_(),len(statements))
+		//fmt.Printf("IF statement at %s statement len %d \n",_file_line_(),len(statements))
+		pass()
 	}
 	
 	return statements 
@@ -988,7 +981,7 @@ func (l *argoListener) parseForStmt(forNode *astNode,funcDecl *astNode,forStmt *
 	var forBlockNode   *astNode             // the block of statements for the for
 	var subNode        *astNode         // sub-simple statement type
 	var statements []*statementNode       // list of statmements 
-	var slist []*statementNode          // list of statements for the block
+	var blocklist []*statementNode          // list of statements for the block
 
 	var childStmt *statementNode       
 	var blockStmt, initStmt, conditionStmt, postStmt  *statementNode // statement nodes for the for statement
@@ -996,7 +989,7 @@ func (l *argoListener) parseForStmt(forNode *astNode,funcDecl *astNode,forStmt *
 	var seenSimple int
 	
 	statements = nil
-	slist = nil
+	blocklist = nil
 	
 	// get the name of the function the ifStmt is in  
 	funcName = funcDecl.children[1]
@@ -1049,7 +1042,7 @@ func (l *argoListener) parseForStmt(forNode *astNode,funcDecl *astNode,forStmt *
 	// if we have a forClause, walk these children 
 	if (forClauseNode != nil) { 
 		for _, childNode := range forClauseNode.children {
-
+			
 			// note the child statement can be nil around this loop if the type is not one of
 			// simpleStmt, expression, block of ifStmt
 			if (childNode.visited == false) {
@@ -1114,14 +1107,14 @@ func (l *argoListener) parseForStmt(forNode *astNode,funcDecl *astNode,forStmt *
 
 	if (forBlockNode != nil) {
 		statementListNode := forBlockNode.children[1] // get the list of statements in the block 
-		slist = l.getListOfStatments(statementListNode,forStmt,funcDecl)
+		blocklist = l.getListOfStatements(statementListNode,forStmt,funcDecl)
 
 		// get the list of statements from the statementlist 
-		if (len(slist) >0)  {
-			statements = append(statements,slist...)
+		if (len(blocklist) >0)  {
+
 			// connect the taken of else clause back to this node
-			blockHead = slist[0]
-			blockTail = slist[len(slist)-1] 
+			blockHead = blocklist[0]
+			blockTail = blocklist[len(blocklist)-1] 
 			blockStmt = blockHead 
 		} else {
 			// should not happen, zero length block
@@ -1140,23 +1133,33 @@ func (l *argoListener) parseForStmt(forNode *astNode,funcDecl *astNode,forStmt *
 	// note this assume the block is defined, which is might not be
 	
 	if (initStmt != nil) {
-		if ( conditionStmt != nil) { 
+		statements = append(statements,initStmt)
+		if ( conditionStmt != nil) {
 			initStmt.addStmtSuccessor(conditionStmt)
 			conditionStmt.addStmtPredecessor(initStmt)
 		}
 	}
 
 	if (conditionStmt != nil) {
+		statements = append(statements,conditionStmt)
 		// there must always be a block statement 
 		conditionStmt.addStmtSuccessor(blockHead)
 		blockHead.addStmtPredecessor(conditionStmt) 
 	}
+	if (len(blocklist) > 0) {
+		statements = append(statements,blocklist...)
+	}
 	
 	if (postStmt != nil) {
+		statements = append(statements,postStmt)
 		postStmt.addStmtPredecessor(blockTail)
-		blockTail.addStmtPredecessor(postStmt) 
+		blockTail.addStmtSuccessor(postStmt) 
 	}
 
+	if (len(statements) > 0) {
+		statements[len(statements)-1].setStmtPredNil()
+	}
+	
 	return statements 
 }
 
@@ -1295,7 +1298,7 @@ func (l *argoListener) getGoRoutines() {
 
 // Given a statementlist, return a list of statementNodes
 // Uses recursion to follow if and for, case and select statements
-func (l *argoListener) getListOfStatments(listnode *astNode,parentStmt *statementNode,funcDecl *astNode) []*statementNode {
+func (l *argoListener) getListOfStatements(listnode *astNode,parentStmt *statementNode,funcDecl *astNode) []*statementNode {
 	var funcName *astNode  // name of the function for the current statement
 	var funcStr  string   //  string name of the function
 	var subNode *astNode  // current statement node
@@ -1422,6 +1425,9 @@ func (l *argoListener) getListOfStatments(listnode *astNode,parentStmt *statemen
 		return nil 
 	}
 
+	if (len(statementList) > 0) {
+		statementList[len(statementList)-1].setStmtPredNil()
+	}
 	return statementList 
 }
 
@@ -1512,7 +1518,7 @@ func (l *argoListener) getStatementGraph() int {
 				l.statementGraph = append(l.statementGraph,entryNode)
 				
 				statements = make([]*statementNode,1)
-				statements = l.getListOfStatments(stmtListNode,entryNode,funcDecl)
+				statements = l.getListOfStatements(stmtListNode,entryNode,funcDecl)
 
 				exitNode = new(statementNode)
 				exitNode.id = l.nextStatementID; l.nextStatementID++
