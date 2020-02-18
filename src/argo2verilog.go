@@ -31,6 +31,8 @@
   E   Control flow --- bit-vectors for control flow for each function. Each bit controls 1 basic block.  
 */
 
+/* see: https://ruslanspivak.com/lsbasi-part7/ */
+
 /* inferrng dual port BRAMS: https://danstrother.com/2010/09/11/inferring-rams-in-fpgas/
 */
 
@@ -787,8 +789,91 @@ func printStatementList(stmts []*statementNode) {
 			fmt.Printf("\t\t stmt index %d node id %d \n ",i,stmt.id)
 		}
 	}
+
 }
 
+// set the last of the linear array of statement nodes to point back to the parent
+// return the number of nodes linked 
+func (l *argoListener) linkDangles(parent *statementNode,headChild *statementNode) int {
+	var successorTarget *statementNode
+	var nextSuccessor *statementNode
+	var forPost *statementNode
+	var forBlockHead *statementNode
+	
+	// get the successor of the parent.
+	var count int 
+
+	if (headChild == nil) {
+		fmt.Printf("Error! linkDangles called with nil headchild %s\n", _file_line_())		
+		return 0 
+	}
+
+	if (parent == nil) {
+		fmt.Printf("Error! linkDangles called with nil parent %s\n", _file_line_())		
+		return 0 
+	}
+	
+	if (len(parent.successors) > 0) {
+		successorTarget = parent.successors[0]
+	} else {
+		return 0 
+	}
+
+	count = 0
+	nextSuccessor = headChild 
+	for {
+
+		switch nextSuccessor.stmtType { 
+		case "declaration": 
+		case "labeledStmt":
+		case "goStmt":
+		case "returnStmt":
+		case "breakStmt":
+		case "continueStmt":
+		case "gotoStmt":
+		case "fallthroughStmt":
+		case "ifStmt": // go down each branch to set the links to the successor if this if statement 
+			if (nextSuccessor.ifTaken != nil) {
+				count += l.linkDangles(parent,nextSuccessor.ifTaken)
+			}
+			if (nextSuccessor.ifElse != nil) {
+				count += l.linkDangles(parent,nextSuccessor.ifElse)
+			}						
+		case "switchStmt":
+		case "selectStmt":
+		case "forStmt":
+			if (nextSuccessor.forPost!= nil) {
+				forPost = nextSuccessor.forPost
+				forPost.successors = append(forPost.successors,nextSuccessor)
+				count ++
+			}
+			if (nextSuccessor.forBlock != nil) {
+				forBlockHead = nextSuccessor.forBlock
+				count += l.linkDangles(nextSuccessor,forBlockHead)
+			}									
+		case "sendStmt":
+		case "expressionStmt":
+		case "incDecStmt":
+		case "assignment":
+		case "shortVarDecl":
+		case "emptyStmt":
+
+		default:
+			pass()
+		}
+		
+		if (len(nextSuccessor.successors) > 0) {  
+			nextSuccessor = nextSuccessor.successors[0] // walk to the next successor 
+		} else { // no succesor, link to the target 
+			nextSuccessor.successors = append(nextSuccessor.successors, successorTarget)
+			count ++ 
+			break 
+		}
+	} // end for 
+
+	return count 
+}
+	
 // parse an ifStmt AST node into a statement graph nodes
 // return a list of lists of any sub-statements from the blocks 
 // The structure is to create new statement nodes for all the childern in a main loop looking for
@@ -821,6 +906,7 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 
 		childStmt = nil
 		// note the child statement can be nil around this loop if the type is not one of
+
 		// simpleStmt, expression, block of ifStmt
 		if (childNode.visited == false) {
 
