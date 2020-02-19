@@ -797,7 +797,7 @@ func printStatementList(stmts []*statementNode) {
 func (l *argoListener) linkDangles(parent *statementNode,headChild *statementNode) int {
 	var successorTarget *statementNode
 	var nextSuccessor *statementNode
-	var forPost *statementNode
+	// var forPost *statementNode
 	var forBlockHead *statementNode
 	
 	// get the successor of the parent.
@@ -842,14 +842,18 @@ func (l *argoListener) linkDangles(parent *statementNode,headChild *statementNod
 		case "switchStmt":
 		case "selectStmt":
 		case "forStmt":
-			if (nextSuccessor.forPost!= nil) {
-				forPost = nextSuccessor.forPost
-				forPost.successors = append(forPost.successors,nextSuccessor)
-				count ++
-			}
+			// if there is a for post statement, it needs to go back up to the top
+			// of the loop 
+			// if (nextSuccessor.forPost!= nil) {
+			//forPost = nextSuccessor.forPost
+			//	forPost.successors = append(forPost.successors,nextSuccessor)
+			//count ++
+			//} 
 			if (nextSuccessor.forBlock != nil) {
 				forBlockHead = nextSuccessor.forBlock
-				count += l.linkDangles(nextSuccessor,forBlockHead)
+				if (forBlockHead.child != nil) { 
+					count += l.linkDangles(forBlockHead,forBlockHead.child)
+				}
 			}									
 		case "sendStmt":
 		case "expressionStmt":
@@ -865,7 +869,7 @@ func (l *argoListener) linkDangles(parent *statementNode,headChild *statementNod
 		if (len(nextSuccessor.successors) > 0) {  
 			nextSuccessor = nextSuccessor.successors[0] // walk to the next successor 
 		} else { // no succesor, link to the target 
-			nextSuccessor.successors = append(nextSuccessor.successors, successorTarget)
+			nextSuccessor.addStmtSuccessor(successorTarget)
 			count ++ 
 			break 
 		}
@@ -1539,10 +1543,12 @@ func (l *argoListener) getStatementGraph() int {
 	var stmtListNode *astNode   // the statement node
 	var funcEOS  *astNode // exit node of the function 
 	var funcStr  string   //  string name of the function
-
-	var entryNode,exitNode *statementNode // function declation is the entry node in the graph 
+	
+	var entryNode,exitNode *statementNode // function declation is the entry node in the graph
+	var childStmt *statementNode    // child of the parent node for dangles and targets 
 	var statements []*statementNode // list of statement nodes
 
+	
 	// mark all nodes as not visited 
 	for _, node := range l.astNodeList {
 		node.visited = false
@@ -1648,8 +1654,23 @@ func (l *argoListener) getStatementGraph() int {
 		}
 	}
 	
+	// Remove dangling pointers by adding return edges linkdangles
+	for _, stmtNode := range(l.statementGraph) {
+		if (stmtNode.stmtType == "functionDecl") {
+			if (stmtNode.child != nil) {
+				childStmt = stmtNode.child
+				l.linkDangles(stmtNode,childStmt)
+			} else {
+				fmt.Printf("Error at %d, no child statement for function %s\n",_file_line_(),stmtNode.funcName)
+			
+			}
+		}
+	}
+	// Add call and return edges
+
+	
 	return 1
-}
+} // end getStatementGraph 
 
 // print all the AST nodes. Can be in rawWithText mode, which includes the source code with each node, or
 // in dotShort mode, which is a graphViz format suitable for making graphs with the dot program 
