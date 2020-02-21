@@ -234,6 +234,11 @@ func (node *statementNode) setStmtPredNil() {
 	node.predIDs = nil
 }
 
+func (node *statementNode) setStmtSuccNil() {
+	node.successors = nil
+	node.succIDs = nil
+}
+
 // These statements return the statement IDs for various fields in the statement node
 // so we dont have to store them in the node
 // If statement branchs to IDs 
@@ -792,38 +797,46 @@ func printStatementList(stmts []*statementNode) {
 
 }
 
-// set the last of the linear array of statement nodes to point back to the parent
-// return the number of nodes linked 
-func (l *argoListener) linkDangles(parent *statementNode,headChild *statementNode) int {
-	var successorTarget *statementNode
-	var nextSuccessor *statementNode
+// Rules for edge dangles:
+// Returns always jump to the exit node
+// If statements ends jump to the sucessor of the If statement
+// for statements return to the top of the for statement 
+// continue return to the outer for statement
+// break jumps to the successor of the enclosing for statement
+
+
+// link the 
+func (l *argoListener) linkDangles(parentHead,parentTail *statementNode) int {
+	var nextChild *statementNode
+	var childTail *statementNode 
 	// var forPost *statementNode
-	var forBlockHead *statementNode
-	
 	// get the successor of the parent.
-	var count int 
 
-	if (headChild == nil) {
-		fmt.Printf("Error! linkDangles called with nil headchild %s\n", _file_line_())		
-		return 0 
-	}
+	var count int
 
-	if (parent == nil) {
+	
+	if (parentHead == nil) {
 		fmt.Printf("Error! linkDangles called with nil parent %s\n", _file_line_())		
 		return 0 
 	}
+
 	
-	if (len(parent.successors) > 0) {
-		successorTarget = parent.successors[0]
-	} else {
+	if (parentHead.child == nil) {
+		return 0 
+	}
+
+	if (parentHead.visited == true) {
 		return 0 
 	}
 
 	count = 0
-	nextSuccessor = headChild 
-	for {
+	nextChild = parentHead.child
+	childTail = nil
+	parentHead.visited = true
 
-		switch nextSuccessor.stmtType { 
+	// find the tail of the 
+	for {
+		switch nextChild.stmtType { 
 		case "declaration": 
 		case "labeledStmt":
 		case "goStmt":
@@ -833,27 +846,17 @@ func (l *argoListener) linkDangles(parent *statementNode,headChild *statementNod
 		case "gotoStmt":
 		case "fallthroughStmt":
 		case "ifStmt": // go down each branch to set the links to the successor if this if statement 
-			if (nextSuccessor.ifTaken != nil) {
-				count += l.linkDangles(parent,nextSuccessor.ifTaken)
+			if (nextChild.ifTaken != nil) {
+				count += l.linkDangles(nextChild.ifTaken,nextChild.successors[0])
 			}
-			if (nextSuccessor.ifElse != nil) {
-				count += l.linkDangles(parent,nextSuccessor.ifElse)
+			if (nextChild.ifElse != nil) {
+				count += l.linkDangles(nextChild.ifElse,nextChild.successors[0])
 			}						
 		case "switchStmt":
 		case "selectStmt":
 		case "forStmt":
-			// if there is a for post statement, it needs to go back up to the top
-			// of the loop 
-			// if (nextSuccessor.forPost!= nil) {
-			//forPost = nextSuccessor.forPost
-			//	forPost.successors = append(forPost.successors,nextSuccessor)
-			//count ++
-			//} 
-			if (nextSuccessor.forBlock != nil) {
-				forBlockHead = nextSuccessor.forBlock
-				if (forBlockHead.child != nil) { 
-					count += l.linkDangles(forBlockHead,forBlockHead.child)
-				}
+			if (nextChild.child != nil) {
+				count += l.linkDangles(nextChild,nextChild.successors[0])
 			}									
 		case "sendStmt":
 		case "expressionStmt":
@@ -866,11 +869,18 @@ func (l *argoListener) linkDangles(parent *statementNode,headChild *statementNod
 			pass()
 		}
 		
-		if (len(nextSuccessor.successors) > 0) {  
-			nextSuccessor = nextSuccessor.successors[0] // walk to the next successor 
-		} else { // no succesor, link to the target 
-			nextSuccessor.addStmtSuccessor(successorTarget)
-			count ++ 
+
+		if (len(nextChild.successors) > 0) {  
+			nextChild = nextChild.successors[0] // walk to the next successor 
+		} else { // no succesor, link to the target
+			childTail = nextChild
+			if (parentHead.stmtType == "forStmt") {
+				childTail.addStmtSuccessor(parentHead) // loop back to top of the for loop
+			} else { 
+				parentTail.addStmtPredecessor(childTail)  // fall through to the outer statement 
+				childTail.addStmtSuccessor(parentTail)   
+			}
+			count ++
 			break 
 		}
 	} // end for 
@@ -992,7 +1002,6 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 				blocklist = l.parseIfStmt(ifSubStmtNode,funcDecl,subIfStmt)
 				if (len(blocklist) >0) {
 					elseHead = blocklist[0]
-					elseStmt = elseHead 
 					elseTail = blocklist[len(blocklist)-1]
 				}
 			}
@@ -1004,12 +1013,6 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 	ifStmt.ifSimple = simpleStmt
 	ifStmt.ifTest = testStmt
 	ifStmt.ifTaken = takenStmt
-
-	if (subIfStmt != nil) {
-		ifStmt.ifElse = subIfStmt
-	} else if (elseStmt != nil) {
-		ifStmt.ifElse = elseStmt 
-	}
 
 	// Assertions that must hold for every if statements 
 	if (testStmt == nil) {
@@ -1027,6 +1030,14 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 	if (elseStmt != nil) && (subIfStmt != nil) {
 		fmt.Printf("Error! at %s both else and if sub-statement set AST node id %d\n", _file_line_(),ifNode.id)
 		fmt.Printf("Error! at %s statement len %d %s\n",_file_line_(),len(statements),statements)		
+	}
+
+	// if we passed the above sanity check/assertion, we can set the sub-if statement 
+	if (subIfStmt != nil) {
+		elseStmt = elseHead 
+		ifStmt.ifElse = subIfStmt
+	} else if (elseStmt != nil) {
+		ifStmt.ifElse = elseStmt 
 	}
 
 	// This sets the pred and successor links for the simple statement 
@@ -1244,8 +1255,15 @@ func (l *argoListener) parseForStmt(forNode *astNode,funcDecl *astNode,forStmt *
 	
 	if (postStmt != nil) {
 		statements = append(statements,postStmt)
-		postStmt.addStmtPredecessor(blockTail)
-		blockTail.addStmtSuccessor(postStmt) 
+		if (len(blocklist) > 0) {
+			postStmt.addStmtPredecessor(blockTail)
+			blockTail.addStmtSuccessor(postStmt)
+		} else {
+			if (conditionStmt != nil) {
+				postStmt.addStmtPredecessor(conditionStmt)
+				conditionStmt.addStmtSuccessor(postStmt)				
+			}
+		}
 	}
 
 	if (len(statements) > 0) {
@@ -1394,6 +1412,7 @@ func (l *argoListener) getListOfStatements(listnode *astNode,parentStmt *stateme
 	var funcName *astNode  // name of the function for the current statement
 	var funcStr  string   //  string name of the function
 	var subNode *astNode  // current statement node
+	var eosNode *astNode  // the end of the statement list node 
 	var stmtTypeNode *astNode // which simpleStmt type is this?, e.g ifStmt, shortVarDecl, forStmt.
 	var statementList []*statementNode
 	var predecessorStmt *statementNode 
@@ -1409,7 +1428,8 @@ func (l *argoListener) getListOfStatements(listnode *astNode,parentStmt *stateme
 	funcStr = funcName.sourceCode
 
 	predecessorStmt = nil
-	//numChildren = len(listnode.children) 
+	eosNode = listnode.children[len(listnode.children) -1]
+	//numChildren = len(listnode.children)
 	for _, childnode := range listnode.children { // for each statement in the statementlist
 
 		// go one level down to skip the variable declaration statements
@@ -1429,7 +1449,6 @@ func (l *argoListener) getListOfStatements(listnode *astNode,parentStmt *stateme
 				// create a new statement node if we have not visited the originating AST statement node
 				if (childnode.visited == false ){
 					stateNode = new(statementNode)
-
 					stateNode.id = l.nextStatementID; l.nextStatementID++
 					stateNode.astDef = childnode
 					stateNode.astDefID =  childnode.id
@@ -1496,7 +1515,7 @@ func (l *argoListener) getListOfStatements(listnode *astNode,parentStmt *stateme
 					case "assignment":
 					case "shortVarDecl":
 					case "emptyStmt":
-
+						
 					default:
 						fmt.Printf("Major error: no such statement type\n")
 					}
@@ -1517,9 +1536,40 @@ func (l *argoListener) getListOfStatements(listnode *astNode,parentStmt *stateme
 		return nil 
 	}
 
-	if (len(statementList) > 0) {
-		statementList[len(statementList)-1].setStmtPredNil()
+	// make the EOS (end of statement) for this block
+	// this allows the graph to have a single level of structure
+	// and not have control edges cross multiple nesting levels 
+	stateNode = new(statementNode)
+	stateNode.id = l.nextStatementID; l.nextStatementID++
+	stateNode.astDef = eosNode
+	stateNode.astDefID =  eosNode.id
+	stateNode.astSubDef = eosNode
+	stateNode.astSubDefID =  eosNode.id
+	stateNode.stmtType = eosNode.ruleType
+	stateNode.funcName = funcStr
+	stateNode.sourceRow =  eosNode.sourceLineStart 
+	stateNode.sourceCol =  eosNode.sourceColStart
+	stateNode.parent = parentStmt
+	stateNode.parentID = parentStmt.id
+	stateNode.child = nil
+	stateNode.childID = -1
+	stateNode.ifSimple = nil 
+	stateNode.ifTaken = nil
+	stateNode.ifElse  = nil
+	stateNode.forInit = nil
+	stateNode.forCond = nil 
+	stateNode.forPost = nil
+	stateNode.forBlock = nil
+	stateNode.caseList = nil
+	// add this to the global list of statements 
+	l.statementGraph = append(l.statementGraph,stateNode)
+	
+	if (predecessorStmt != nil)  {
+		predecessorStmt.addStmtSuccessor(stateNode)
+		stateNode.addStmtPredecessor(predecessorStmt)
 	}
+	statementList = append(statementList,stateNode)
+	
 	return statementList 
 }
 
@@ -1545,7 +1595,6 @@ func (l *argoListener) getStatementGraph() int {
 	var funcStr  string   //  string name of the function
 	
 	var entryNode,exitNode *statementNode // function declation is the entry node in the graph
-	var childStmt *statementNode    // child of the parent node for dangles and targets 
 	var statements []*statementNode // list of statement nodes
 
 	
@@ -1638,11 +1687,11 @@ func (l *argoListener) getStatementGraph() int {
 				// set the edges from the entry point to this list
 				
 
-				if ( len(statements) > 1) {
+				if ( len(statements) > 0) {
 					entryNode.child = statements[0]
 					entryNode.childID = statements[0].id
 				} else {
-					fmt.Printf("got zero statements ")
+					fmt.Printf("Warning: Function %s has zero statements",funcStr)
 				}
 
 
@@ -1653,21 +1702,18 @@ func (l *argoListener) getStatementGraph() int {
 			
 		}
 	}
+
+	for _, stmtNode := range(l.statementGraph) {
+		stmtNode.visited = false 
+	}
 	
-	// Remove dangling pointers by adding return edges linkdangles
+	// Remove dangling pointers by adding return edges 
 	for _, stmtNode := range(l.statementGraph) {
 		if (stmtNode.stmtType == "functionDecl") {
-			if (stmtNode.child != nil) {
-				childStmt = stmtNode.child
-				l.linkDangles(stmtNode,childStmt)
-			} else {
-				fmt.Printf("Error at %d, no child statement for function %s\n",_file_line_(),stmtNode.funcName)
-			
-			}
+			l.linkDangles(stmtNode,stmtNode.successors[0])
 		}
 	}
 	// Add call and return edges
-
 	
 	return 1
 } // end getStatementGraph 
@@ -2077,7 +2123,6 @@ func main() {
 	parsedProgram = parseArgo(inputFileName_p)
 	parsedProgram.getAllVariables()  // must call get all variables first 
 	parsedProgram.getAllFunctions()  // then get all functions 
-	parsedProgram.getStatementGraph()  // now make the statementgraph 
 	
 	if (*printASTasGraphViz_p) {
 		parsedProgram.printASTnodes("rawWithText")
@@ -2088,6 +2133,8 @@ func main() {
 		parsedProgram.printVarNodes()
 		
 	}
+
+	parsedProgram.getStatementGraph()  // now make the statementgraph 
 
 	if (*printStmtGraph_p) {
 		parsedProgram.printStatementGraph()	

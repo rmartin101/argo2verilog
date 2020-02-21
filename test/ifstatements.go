@@ -12,7 +12,7 @@ func blammo(i,j int) int {
 	return i+j ;
 } ;
 
-func blargo(i int) (int64,int64) {
+func blargo(i int) (int,int) {
 	return i+i, i*i ;
 } ;
 
