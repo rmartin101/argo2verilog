@@ -461,8 +461,6 @@ func (node *astNode) walkDownToAllRules(ruleType string) []*astNode {
 
 	ruleList := make([]*astNode,0)
 	if (node.ruleType == ruleType) {
-		fmt.Printf("walkdowntoallrules adding node %d \n", node.id)
-		
 		ruleList = append(ruleList,node)
 		return ruleList 
 	}
@@ -472,7 +470,7 @@ func (node *astNode) walkDownToAllRules(ruleType string) []*astNode {
 			childList = childNode.walkDownToAllRules(ruleType)
 			if (ruleList != nil) {
 				ruleList = append(ruleList,childList...)
-				fmt.Printf("walkdowntoallrules len is %d \n",len(ruleList))
+				// fmt.Printf("walkdowntoallrules len is %d \n",len(ruleList))
 			}
 			
 		}
@@ -1037,6 +1035,7 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 
 			// this is the if () {block } else if {} construct when the else is an if statement 
 			if (childNode.ruleType == "ifStmt") {
+				childStmt.stmtType = "ifStmt"
 				ifSubStmtNode = childNode
 				subIfStmt = childStmt
 				blocklist = l.parseIfStmt(ifSubStmtNode,funcDecl,subIfStmt)
@@ -1635,22 +1634,32 @@ func (l *argoListener) addReturnEdges() {
 	}
 }
 
+func (l *argoListener) getFunctionStmtEntry(funcName string) *statementNode {
+	for _, stmtNode := range(l.statementGraph) {
+		stmtNode.visited = false
+
+		if (stmtNode.stmtType == "functionDecl") {
+			if (stmtNode.funcName == funcName) {
+				return stmtNode
+			}
+		}
+	}
+	return nil 
+}
+
+
 // add edges to the caller 
 func (l *argoListener) addCallEdges() {
-	var functionEntry *statementNode
+	var funcEntryNode *statementNode
 	var retList []*astNode
+	var parentNode, operandNameNode *astNode
+	var calleeNameStr string
 
 	for _, stmtNode := range(l.statementGraph) {
 		stmtNode.visited = false 
 	}
 	
-	functionEntry = nil 
 	for _, stmtNode := range(l.statementGraph) {
-
-		if (stmtNode.stmtType == "functionDecl") {
-			functionEntry = stmtNode 
-		}
-
 		// statement types which make make a function call 
 		if ((stmtNode.stmtType == "expression") || (stmtNode.stmtType == "assignment") ||
 			(stmtNode.stmtType == "shortVarDecl") || (stmtNode.stmtType == "expressionStmt") ||
@@ -1658,7 +1667,22 @@ func (l *argoListener) addCallEdges() {
 
 			// if something in the AST has parameters, we declare it having at least one functio
 			retList = stmtNode.astDef.walkDownToAllRules("arguments")
-			fmt.Printf("At node %d func %s got %d argument nodes\n",stmtNode.id,functionEntry.funcName,len(retList))
+
+			// check if we have multiple calls in this statement. If so we walk the list of
+			// called functions and add a successor edge in the statementgraph for each one 
+			for _, argNode := range retList {
+				parentNode = argNode.parent
+				operandNameNode = parentNode.walkDownToRule("operandName")
+				if (operandNameNode != nil) {
+					calleeNameStr = operandNameNode.children[0].ruleType 
+					// find the functionDecl node with this name
+					funcEntryNode = l.getFunctionStmtEntry(calleeNameStr)
+					stmtNode.addStmtSuccessor(funcEntryNode)
+					
+				} else {
+					fmt.Printf("Error! no operandNode at %d\n", _file_line_())			
+				}
+			}
 
 		}
 	}
@@ -2235,7 +2259,5 @@ func main() {
 	if (*printStmtGraph_p) {
 		parsedProgram.printStatementGraph()	
 	}
-
-
 	
 }
