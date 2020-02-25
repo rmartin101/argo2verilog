@@ -45,7 +45,7 @@ func main() {
 	} ;
 
 	// if with a simple statement at the begining
-	if  x:=3; k <= (i + blammo(i,j))  {
+	if  x:=3; k <= (i + blammo(i,j) + blammo(j,i) )  {
 		fmt.Printf(" X is %d  \n", x) ;
 		
 	};

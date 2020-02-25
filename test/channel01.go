@@ -22,6 +22,11 @@ func fubar(done chan int, z int) {
 	done <- k ; 
 }; 
 
+func pass() {
+	var i int;
+	i = i +1 ;
+};
+
 func main() {
 	var i,dead,l int ;
 	var j int;
@@ -42,6 +47,8 @@ func main() {
 
 	m2[2] = 102 + int(m1[1][1]);
 	m2[3] = 103 + m2[0];
+
+	pass() ; 
 	
 	dead = 3 ;
 	l = dead;

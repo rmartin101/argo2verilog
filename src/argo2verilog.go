@@ -369,7 +369,7 @@ type argoListener struct {
 	root *astNode                 // root of an absract syntax tree 
 	astNodeList []*astNode        // list of nodes of an absract syntax tree, root has id = 0 
 	varNodeList []*variableNode   // list of all variables in the program
-	varNodeNameMap map[string]*variableNode  // map of cannonical names to variable nodes
+	varNameMap map[string]*variableNode  // map of cannonical names to variable nodes
 	funcNodeList  []*functionNode     // list of functions
 	funcNameMap map[string]*functionNode  //  maps the names of the functions to the function node 
 	statementGraph   []*statementNode   // list of statement nodes. 
@@ -449,6 +449,41 @@ func (node *astNode) walkDownToRule(ruleType string) *astNode {
 	}
 	return nil
 }
+
+// Walk down the AST until we find all matching rules. Return a list of all such rules 
+func (node *astNode) walkDownToAllRules(ruleType string) []*astNode {
+	//fmt.Printf("walkDownToallRules Called rule: id %d %s node: \n ",node.id,ruleType)
+	var childList []*astNode
+	
+	if (node == nil) {
+		return nil
+	}
+
+	ruleList := make([]*astNode,0)
+	if (node.ruleType == ruleType) {
+		fmt.Printf("walkdowntoallrules adding node %d \n", node.id)
+		
+		ruleList = append(ruleList,node)
+		return ruleList 
+	}
+	
+	for _, childNode := range node.children {
+		if (childNode != nil) {
+			childList = childNode.walkDownToAllRules(ruleType)
+			if (ruleList != nil) {
+				ruleList = append(ruleList,childList...)
+				fmt.Printf("walkdowntoallrules len is %d \n",len(ruleList))
+			}
+			
+		}
+	}
+	if (len(ruleList) == 0) {
+		return nil 
+	} else { 
+		return ruleList
+	}
+}
+
 
 // get all the variables in an AST
 // We go linearly through all the nodes looking for declaration types
@@ -781,10 +816,10 @@ func (l *argoListener) getAllVariables() int {
 	if (identifierList == nil) {
 		return 0 
 	}
+
 	return 1
 	
 }
-
 
 func printStatementList(stmts []*statementNode) {
 	if (len(stmts) == 0) {
@@ -803,7 +838,6 @@ func printStatementList(stmts []*statementNode) {
 // for statements return to the top of the for statement 
 // continue return to the outer for statement
 // break jumps to the successor of the enclosing for statement
-
 
 // link the 
 func (l *argoListener) linkDangles(parentHead,parentTail *statementNode) int {
@@ -887,7 +921,13 @@ func (l *argoListener) linkDangles(parentHead,parentTail *statementNode) int {
 
 	return count 
 }
+
+// the the successor/predecessor edges of the return statements 
+func (l *argoListener) setReturnTargets(funcExit,parent *statementNode) {
 	
+	
+}
+
 // parse an ifStmt AST node into a statement graph nodes
 // return a list of lists of any sub-statements from the blocks 
 // The structure is to create new statement nodes for all the childern in a main loop looking for
@@ -1057,9 +1097,9 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 	
 	// the else and subIf are interchangable as the 2nd clause 
 	if (elseStmt != nil) {
-		testStmt.addStmtSuccessor(testStmt)
+		testStmt.addStmtSuccessor(elseStmt)
 		elseStmt.addStmtPredecessor(testStmt)
-	}
+	} 
 
 	if (subIfStmt != nil) {
 		testStmt.addStmtSuccessor(subIfStmt)
@@ -1354,6 +1394,7 @@ func (l *argoListener) getAllFunctions() {
 				fNode.funcName = funcStr
 				fNode.sourceRow = funcName.sourceLineStart
 				fNode.sourceCol = funcName.sourceColStart
+				l.funcNodeList = append(l.funcNodeList,fNode)
 				l.funcNameMap[funcStr] = fNode
 
 				// get the parameters 
@@ -1393,18 +1434,9 @@ func (l *argoListener) getAllFunctions() {
 			
 		}
 	}
-}
-
-// get both the forward and backward edges for function calls in the statement graph 
-func (l *argoListener) getCallsandReturns() {
-
-	}
-
-
-// get the list of go routines and add edges in the statement graph 
-func (l *argoListener) getGoRoutines() {
 
 }
+
 
 // Given a statementlist, return a list of statementNodes
 // Uses recursion to follow if and for, case and select statements
@@ -1573,12 +1605,68 @@ func (l *argoListener) getListOfStatements(listnode *astNode,parentStmt *stateme
 	return statementList 
 }
 
-// fix the edges of the return statements to their successors to the exit nodes of the function
-func (l *argoListener) parseReturnStmts() {
+// fix the edges of the return statements to their successors to the exit nodes of the function/
+// this assumes the function declaration is linearly ordered in the statementgraph with the function
+// calls. If not, we need a walkUpToRule call. Assuming linear ordering for now.
+func (l *argoListener) addReturnEdges() {
+	var functionEntry, functionExit *statementNode
+	// find the exit node
+
+	for _, stmtNode := range(l.statementGraph) {
+		stmtNode.visited = false 
+	}
 	
+	functionExit = nil 
+	for _, stmtNode := range(l.statementGraph) {
+
+		if (stmtNode.stmtType == "functionDecl") {
+			functionEntry = stmtNode 
+			functionExit = functionEntry.successors[0]
+		}
+
+		if (stmtNode.stmtType == "returnStmt") {
+			if (functionExit != nil) {
+				stmtNode.setStmtSuccNil()
+				stmtNode.addStmtSuccessor(functionExit)
+			}else {
+				fmt.Printf("Error! return edges called with mil function parent %s\n", _file_line_())
+			}
+		}
+	}
 }
 
+// add edges to the caller 
+func (l *argoListener) addCallEdges() {
+	var functionEntry *statementNode
+	var retList []*astNode
 
+	for _, stmtNode := range(l.statementGraph) {
+		stmtNode.visited = false 
+	}
+	
+	functionEntry = nil 
+	for _, stmtNode := range(l.statementGraph) {
+
+		if (stmtNode.stmtType == "functionDecl") {
+			functionEntry = stmtNode 
+		}
+
+		// statement types which make make a function call 
+		if ((stmtNode.stmtType == "expression") || (stmtNode.stmtType == "assignment") ||
+			(stmtNode.stmtType == "shortVarDecl") || (stmtNode.stmtType == "expressionStmt") ||
+			(stmtNode.stmtType == "unaryExpr")  || (stmtNode.stmtType == "returnStmt")) {
+
+			// if something in the AST has parameters, we declare it having at least one functio
+			retList = stmtNode.astDef.walkDownToAllRules("arguments")
+			fmt.Printf("At node %d func %s got %d argument nodes\n",stmtNode.id,functionEntry.funcName,len(retList))
+
+		}
+	}
+
+
+	
+
+}
 // Generate a control flow graph (CFG) at the statement level.
 // We look for statement lists. If we find one, back up to the
 // enclosing function to find the function def to use as and entry
@@ -1703,16 +1791,24 @@ func (l *argoListener) getStatementGraph() int {
 		}
 	}
 
+	// because linkdanges is recursive, we have these outer loops 
 	for _, stmtNode := range(l.statementGraph) {
 		stmtNode.visited = false 
 	}
-	
 	// Remove dangling pointers by adding return edges 
 	for _, stmtNode := range(l.statementGraph) {
 		if (stmtNode.stmtType == "functionDecl") {
-			l.linkDangles(stmtNode,stmtNode.successors[0])
+			// l.linkDangles(stmtNode,stmtNode.successors[0])
 		}
 	}
+
+	// adding return edges is not recursize, so we have a flat call 
+	for _, stmtNode := range(l.statementGraph) {
+		stmtNode.visited = false 
+	}
+	l.addReturnEdges()
+	l.addCallEdges()
+	
 	// Add call and return edges
 	
 	return 1
