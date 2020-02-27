@@ -203,7 +203,7 @@ type statementNode struct {
 	forPost   *statementNode      // the for post-statement
 	forBlock  *statementNode     // the main block of the for statement 
 	caseList   [][]*statementNode  // list of statements for a switch or select statement
-	callTarget *statementNode     // regular caller target statement (funcDecl) 
+	callTargets []*statementNode     // regular caller target statement (funcDecl) 
 	goTarget   *statementNode     // target of go statemetn (funcDecl)
 	returnTarget []*statementNode  // list of return targets 
 	visited        bool             // flag for if this node is visited
@@ -1607,7 +1607,7 @@ func (l *argoListener) getListOfStatements(listnode *astNode,parentStmt *stateme
 // fix the edges of the return statements to their successors to the exit nodes of the function/
 // this assumes the function declaration is linearly ordered in the statementgraph with the function
 // calls. If not, we need a walkUpToRule call. Assuming linear ordering for now.
-func (l *argoListener) addReturnEdges() {
+func (l *argoListener) addInternalReturnEdges() {
 	var functionEntry, functionExit *statementNode
 	// find the exit node
 
@@ -1649,7 +1649,7 @@ func (l *argoListener) getFunctionStmtEntry(funcName string) *statementNode {
 
 
 // add edges to the caller 
-func (l *argoListener) addCallEdges() {
+func (l *argoListener) addCallandReturnEdges() {
 	var funcEntryNode *statementNode
 	var retList []*astNode
 	var parentNode, operandNameNode *astNode
@@ -1677,7 +1677,7 @@ func (l *argoListener) addCallEdges() {
 					calleeNameStr = operandNameNode.children[0].ruleType 
 					// find the functionDecl node with this name
 					funcEntryNode = l.getFunctionStmtEntry(calleeNameStr)
-					stmtNode.addStmtSuccessor(funcEntryNode)
+					stmtNode.callTargets=append(stmtNode.callTargets,funcEntryNode)
 					
 				} else {
 					fmt.Printf("Error! no operandNode at %d\n", _file_line_())			
@@ -1686,11 +1686,8 @@ func (l *argoListener) addCallEdges() {
 
 		}
 	}
-
-
-	
-
 }
+
 // Generate a control flow graph (CFG) at the statement level.
 // We look for statement lists. If we find one, back up to the
 // enclosing function to find the function def to use as and entry
@@ -1830,8 +1827,8 @@ func (l *argoListener) getStatementGraph() int {
 	for _, stmtNode := range(l.statementGraph) {
 		stmtNode.visited = false 
 	}
-	l.addReturnEdges()
-	l.addCallEdges()
+	l.addInternalReturnEdges()
+	l.addCallandReturnEdges()
 	
 	// Add call and return edges
 	
