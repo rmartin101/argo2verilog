@@ -24,13 +24,13 @@ func stage2(pipe1 chan uint32, pipe2 chan byte){
 	total = <- pipe1;
 
 	// send the size of the message in bytes in big endian 
-	byte0 = unit8(total & 0xFF000000) >> 24;
+	byte0 = uint8( (total & 0xFF000000) >> 24);
 	pipe2 <- byte0;
 
-	byte1 = uint8(total & 0x00FF0000) >> 16;
+	byte1 = uint8( (total & 0x00FF0000) >> 16);
 	pipe2 <- byte1;
 		
-	byte2 = uint8(total & 0x0000FF00) >> 8;
+	byte2 = uint8( (total & 0x0000FF00) >> 8);
 	pipe2 <- byte2;
 		
 	byte3 = uint8(total & 0x000000FF);

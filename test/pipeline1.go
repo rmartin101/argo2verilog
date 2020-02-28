@@ -1,49 +1,47 @@
 // Small program to test popelined channels
-
 // the second stage demonstrates a tiny filter
 
 package main ;
 
 import ( "fmt" ) ;
 
-func stage1(total uint32, pipe1 chan uint32) {
+func input(total uint32, pipe1 chan uint32) {
 	var i uint32; 
 
 	pipe1 <- total ;  // end flag value 	
-	for i = 0; i < total; i = i +1  {
-		pipe1 <- i + i;
-		fmt.Printf("stage 1: sent integer %d\n",i+i);
+	for i = 0; i < total; i = i + 1  {
+		pipe1 <- i ;
+		fmt.Printf("input: count %d sent integer %d\n",i,i);
 	}; 
 
 }; 
 
-func stage2(pipe1 chan uint32, pipe2 chan uint32){
+func filter(pipe1 chan uint32, pipe2 chan uint32){
 	var count,total,val uint32 ;
 	
 	count = 0;
 	total = <- pipe1;
 
-	pipe2 <- total 
+	pipe2 <- total ;
 	// send the rest of the message 
 	for (count < total) {
 		val = <- pipe1 ;
-		if (val == 3) || (val == 4) {
-			val = 17;
-		}
+		if ((val & 0x00000007) == 3) || ((val & 0x00000007)== 4) { // very simple filter here 
+			val = val | 0x00000007;
+		};
 		pipe2 <- val ; 
-		fmt.Printf("stage 2: got a value \n");
 		count = count + 1; 
 	}; 
 }; 
 
-func stage3(pipe2 chan uint32,done chan bool) {
+func output(pipe2 chan uint32,done chan bool) {
 	var count,total,val uint32;
 
 	count = 0;
 	total = <- pipe2;	
 	for (count < total) {
 		val =	<- pipe2 ;
-		fmt.Printf("stage 3: got integer %d\n",val);
+		fmt.Printf("output: count: %d got integer %d\n",count,val);
 		count = count +1;
 	};
 
@@ -58,12 +56,12 @@ func main() {
 	pipe2 := make(chan uint32, 4);
 	done := make(chan bool, 1);
 	
-	go stage3(pipe2,done) ;
-	go stage2(pipe1,pipe2) ;
-	go stage1(5,pipe1) ;
+	go output(pipe2,done) ;
+	go filter(pipe1,pipe2) ;
+	go input(10,pipe1) ;
 
-	
 	finished = <- done;
+
 	fmt.Printf("finished is %t\n", finished);
 	
 };

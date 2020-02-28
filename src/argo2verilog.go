@@ -204,8 +204,8 @@ type statementNode struct {
 	forBlock  *statementNode     // the main block of the for statement 
 	caseList   [][]*statementNode  // list of statements for a switch or select statement
 	callTargets []*statementNode     // regular caller target statement (funcDecl) 
-	goTarget   *statementNode     // target of go statemetn (funcDecl)
-	returnTarget []*statementNode  // list of return targets 
+	goTargets   []*statementNode     // target of go statemetn (funcDecl)
+	returnTargets []*statementNode  // list of return targets 
 	visited        bool             // flag for if this node is visited
 }
 
@@ -1650,7 +1650,7 @@ func (l *argoListener) getFunctionStmtEntry(funcName string) *statementNode {
 
 // add edges to the caller 
 func (l *argoListener) addCallandReturnEdges() {
-	var funcEntryNode *statementNode
+	var funcEntryNode,functionExitNode *statementNode
 	var retList []*astNode
 	var parentNode, operandNameNode *astNode
 	var calleeNameStr string
@@ -1658,12 +1658,14 @@ func (l *argoListener) addCallandReturnEdges() {
 	for _, stmtNode := range(l.statementGraph) {
 		stmtNode.visited = false 
 	}
-	
+
+	// these statement types may have a function call 
 	for _, stmtNode := range(l.statementGraph) {
-		// statement types which make make a function call 
+		// statement types which may make a function call 
 		if ((stmtNode.stmtType == "expression") || (stmtNode.stmtType == "assignment") ||
 			(stmtNode.stmtType == "shortVarDecl") || (stmtNode.stmtType == "expressionStmt") ||
-			(stmtNode.stmtType == "unaryExpr")  || (stmtNode.stmtType == "returnStmt")) {
+			(stmtNode.stmtType == "unaryExpr")  || (stmtNode.stmtType == "returnStmt") ||
+		        (stmtNode.stmtType == "goStmt")) {
 
 			// if something in the AST has parameters, we declare it having at least one functio
 			retList = stmtNode.astDef.walkDownToAllRules("arguments")
@@ -1677,7 +1679,24 @@ func (l *argoListener) addCallandReturnEdges() {
 					calleeNameStr = operandNameNode.children[0].ruleType 
 					// find the functionDecl node with this name
 					funcEntryNode = l.getFunctionStmtEntry(calleeNameStr)
-					stmtNode.callTargets=append(stmtNode.callTargets,funcEntryNode)
+					// if we can't find the function, then abort this node 
+					if (funcEntryNode != nil) {
+						// add predecessor to the function entry node 
+						funcEntryNode.addStmtPredecessor(stmtNode)
+						// non-go statements add a return edge
+						if (stmtNode.stmtType != "goStmt") {
+							stmtNode.callTargets=append(stmtNode.callTargets,funcEntryNode)
+							functionExitNode = funcEntryNode.successors[0]
+							functionExitNode.returnTargets = append(functionExitNode.returnTargets,stmtNode)
+							
+						} else {
+							stmtNode.goTargets=append(stmtNode.goTargets,funcEntryNode)
+						}
+					} else {
+						// check if a fmt.printf, make or cast statements. 
+						// need to add check if this is a printf statement 
+						// fmt.Printf("function %s not found \n",calleeNameStr)
+					}
 					
 				} else {
 					fmt.Printf("Error! no operandNode at %d\n", _file_line_())			
@@ -1686,6 +1705,31 @@ func (l *argoListener) addCallandReturnEdges() {
 
 		}
 	}
+}
+
+// for assignment and short var decls, add the left and right hand sides of the expressions 
+func (l *argoListener) addVarsignments() {
+	var operandNameNode *statementNode
+	var varStr string
+	
+	for _, stmtNode := range(l.statementGraph) {
+		stmtNode.visited = false 
+	}
+
+
+	// these statement types may have a variable assignment 
+	for _, stmtNode := range(l.statementGraph) {
+		// statement types which may have an assignment 
+		if ((stmtNode.stmtType == "assignment") || (stmtNode.stmtType == "shortVarDecl") || 
+			(stmtNode.stmtType == "sendStmt")) {
+
+			funcNameNode = stmtNode.astDef.walkUpToRule("functionDecl")
+			
+			operandNameNode = stmtNode.children[0].astDef.walkDownToRule("operandName")
+			varStr = operandNameNode.children[0].ruleType
+			
+		}
+
 }
 
 // Generate a control flow graph (CFG) at the statement level.
@@ -1935,6 +1979,25 @@ func (l *argoListener) printStatementGraph() {
 			j++
 		}		
 
+		if len(node.callTargets) >0 {
+			fmt.Printf(" callto: ")
+			j=0
+			for (j < len(node.callTargets)) {
+				fmt.Printf("%d ",node.callTargets[j].id)
+				j++
+			}		
+		}
+
+		if len(node.returnTargets) >0 {
+			fmt.Printf(" return: ")
+			j=0
+			for (j < len(node.returnTargets)) {
+				fmt.Printf("%d ",node.returnTargets[j].id)
+				j++
+			}		
+		}
+		
+		// Get sub statement lists for this node
 		// Get sub statement lists for this node
 		switch node.stmtType { 
 		case "declaration": 
