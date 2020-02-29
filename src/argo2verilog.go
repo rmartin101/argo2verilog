@@ -18,8 +18,8 @@
 /* Convert a program in the Argo programming language to a Verilog executable */
 
 /* Outline of the compiler 
-  (1) Create and go-based abstract syntax tree (AST) using Antlr4 
-  (2) use the AST to create a statement control flow graph (SCFG) 
+  (1) Create and go-based parse tree using Antlr4 
+  (2) use the parse tree to create a statement control flow graph (SCFG) 
   (3) Use the SCFG to create a Basic-Block CFG (BBCFG)
   (4) Optimize the BBCFG using data-flow analysis to increase parallelism 
   (5) Use the BBCFG to output the Verilog sections:
@@ -107,15 +107,15 @@ func _file_line_() string {
     return s
 }
 
-// This is the representation of the AST we use 
-type astNode struct {
+// This is the representation of the parse tree nodes
+type parseNode struct {
 	id int                // integer ID 
 	ruleType string       // the type of the rule from the Argo.g4 definition
 	isTerminal bool       // is a terminal node 
 	parentID int          // parent integer ID
 	childIDs []int        // list of child interger IDs 
-	parent *astNode       // pointer to the parent 
-	children []*astNode   // list of pointers to child nodes 
+	parent *parseNode       // pointer to the parent 
+	children []*parseNode   // list of pointers to child nodes 
 	sourceCode string     // the source code as a string
 	sourceLineStart int     // start line in the source code
 	sourceColStart  int     // start column in the source code
@@ -142,8 +142,8 @@ type functionNode struct {
 // this is the object that holds a variable state 
 type variableNode struct {
 	id int                // every var gets a unique ID
-	astDef     *astNode   // link to the astNode parent node
-	astDefNum  int        // ID of the astNode parent definition
+	astDef     *parseNode   // link to the parseNode parent node
+	astDefNum  int        // ID of the parseNode parent definition
 	astClass    string    // originating class
 	isParameter bool      // is the a parameter to a function
 	isResult bool      // is this a generated return value for the function
@@ -175,9 +175,9 @@ type variableNode struct {
 
 type statementNode struct {
 	id             int        // every statement gets an ID
-	astDef         *astNode   // link to the astNode parent node of the statement type
-	astDefID      int        // ID of the astNode parent definition
-	astSubDef      *astNode   // the simplestatement type (e.g assignment, for, send, goto ...)
+	astDef         *parseNode   // link to the parseNode parent node of the statement type
+	astDefID      int        // ID of the parseNode parent definition
+	astSubDef      *parseNode   // the simplestatement type (e.g assignment, for, send, goto ...)
 	astSubDefID    int        // ID of the simple statement type 
 	stmtType     string     // the type of the simple statement 
 	sourceName     string     // The source code of the statement 
@@ -349,8 +349,6 @@ func (l *ArgoErrorListener) ReportContextSensitivity(recognizer antlr.Parser, df
 	l.sensitivityErrors += 1
 }
 
-
-
 // this struct holds the state for the whole program
 
 type argoListener struct {
@@ -359,15 +357,15 @@ type argoListener struct {
 	recog antlr.Parser
 	logIt DebugLog //send items to the log 
 	ProgramLines []string // the program as a list of strings, one string per line
-	astNode2ID map[interface{}]int //  a map of the AST node pointers to small integer ID mapping
+	parseNode2ID map[interface{}]int //  a map of the AST node pointers to small integer ID mapping
 	nextAstID int                 // IDs for the AST nodes
 	nextFuncID int                // IDs for the function nodes 
 	nextVarID int                 // IDs for the Var nodes
 	nextStatementID int           // IDs for the statement nodes
 	nextBlockID int              // IDs for the basic Blocks 
 	varNode2ID map[interface{}]int //  a map of the variable pointers to small integer ID mapping
-	root *astNode                 // root of an absract syntax tree 
-	astNodeList []*astNode        // list of nodes of an absract syntax tree, root has id = 0 
+	root *parseNode                 // root of an absract syntax tree 
+	parseNodeList []*parseNode        // list of nodes of an absract syntax tree, root has id = 0 
 	varNodeList []*variableNode   // list of all variables in the program
 	varNameMap map[string]*variableNode  // map of cannonical names to variable nodes
 	funcNodeList  []*functionNode     // list of functions
@@ -375,24 +373,25 @@ type argoListener struct {
 	statementGraph   []*statementNode   // list of statement nodes. 
 }
 
+
 // get a node ID in the AST tree 
 func (l *argoListener) getAstID(c antlr.Tree) int {
 
 	// if the entry is in the table, return the integer ID
-	if val, ok := l.astNode2ID[c] ; ok {
+	if val, ok := l.parseNode2ID[c] ; ok {
 		return val 
 	}
 
 	// create a new entry and return it 
-	l.astNode2ID[c] = l.nextAstID
+	l.parseNode2ID[c] = l.nextAstID
 	l.nextAstID = l.nextAstID + 1
-	return 	l.astNode2ID[c]
+	return 	l.parseNode2ID[c]
 }
 
 // add a node to the list of all nodes
-func (l *argoListener) addASTnode(n *astNode) {
+func (l *argoListener) addASTnode(n *parseNode) {
 	// need to check for duplicates
-	l.astNodeList = append(l.astNodeList,n) 
+	l.parseNodeList = append(l.parseNodeList,n) 
 }
 
 func (l *argoListener) addVarNode(v *variableNode) {
@@ -402,9 +401,9 @@ func (l *argoListener) addVarNode(v *variableNode) {
 // Walk up the parents of the AST until we find a matching rule 
 // assumes we have to back-up towards the root node
 // Returns the first matching node 
-func (node *astNode) walkUpToRule(ruleType string) *astNode {
+func (node *parseNode) walkUpToRule(ruleType string) *parseNode {
 	var foundit bool
-	var parent *astNode
+	var parent *parseNode
 	
 	foundit = false
 	parent = node.parent
@@ -424,8 +423,8 @@ func (node *astNode) walkUpToRule(ruleType string) *astNode {
 
 // Walk down the AST until we find a matching rule. Use BFS order
 // Returns the first matching node 
-func (node *astNode) walkDownToRule(ruleType string) *astNode {
-	var matched *astNode
+func (node *parseNode) walkDownToRule(ruleType string) *parseNode {
+	var matched *parseNode
 	
 	//fmt.Printf("walkDownToRule Called rule: %s node: ",ruleType)
 
@@ -451,15 +450,15 @@ func (node *astNode) walkDownToRule(ruleType string) *astNode {
 }
 
 // Walk down the AST until we find all matching rules. Return a list of all such rules 
-func (node *astNode) walkDownToAllRules(ruleType string) []*astNode {
+func (node *parseNode) walkDownToAllRules(ruleType string) []*parseNode {
 	//fmt.Printf("walkDownToallRules Called rule: id %d %s node: \n ",node.id,ruleType)
-	var childList []*astNode
+	var childList []*parseNode
 	
 	if (node == nil) {
 		return nil
 	}
 
-	ruleList := make([]*astNode,0)
+	ruleList := make([]*parseNode,0)
 	if (node.ruleType == ruleType) {
 		ruleList = append(ruleList,node)
 		return ruleList 
@@ -496,8 +495,8 @@ func (node *astNode) walkDownToAllRules(ruleType string) []*astNode {
 
 // given and AST node of type r_type find the primitive type of the node
 // also returns the number of bits of the type 
-func (n *astNode) getPrimitiveType() (string,int) {
-	var identifierType, identifierR_type *astNode
+func (n *parseNode) getPrimitiveType() (string,int) {
+	var identifierType, identifierR_type *parseNode
 	var name,numB,nameB string  // number of bit as a string, name with no number 
 	var numBits int   // number of bits for this type 
 
@@ -553,8 +552,8 @@ func (n *astNode) getPrimitiveType() (string,int) {
 
 // return the dimension sizes of the array
 // assumes we are at the arrayType Node in the AST graph
-func (node *astNode) getArrayDimensions() ([] int) {
-	var arrayLenNode, basicLitNode *astNode
+func (node *parseNode) getArrayDimensions() ([] int) {
+	var arrayLenNode, basicLitNode *parseNode
 	var dimensions []int
 	var dimSize int
 	
@@ -579,7 +578,7 @@ func (node *astNode) getArrayDimensions() ([] int) {
 }
 
 // get the map key and value types 
-func (n *astNode) getMapKeyValus() (string,int,string,int) {
+func (n *parseNode) getMapKeyValus() (string,int,string,int) {
 	
 	return "",-1,"",-1
 }
@@ -587,9 +586,9 @@ func (n *astNode) getMapKeyValus() (string,int,string,int) {
 
 // get the number of elements in the channel
 // or -1 if no size is found 
-func (node *astNode) getChannelDepth() (int) {
+func (node *parseNode) getChannelDepth() (int) {
 	var queueSize int
-	var basicLitNode *astNode
+	var basicLitNode *parseNode
 
 	queueSize = NOTSPECIFIED
 	basicLitNode = node.walkDownToRule("basicLit")
@@ -603,16 +602,16 @@ func (node *astNode) getChannelDepth() (int) {
 }
 
 func (l *argoListener) getAllVariables() int {
-	var funcDecl *astNode
-	var identifierList,identifierR_type *astNode
-	var funcName *astNode  // AST node of the function and function name
-	var identChild *astNode // AST node for an identifier for the inferred type 
+	var funcDecl *parseNode
+	var identifierList,identifierR_type *parseNode
+	var funcName *parseNode  // AST node of the function and function name
+	var identChild *parseNode // AST node for an identifier for the inferred type 
 	// the three type of declarations are: varDecl (var keyword), parameterDecls (in a function signature), and shortVarDecls (:=)
 
 	var varNameList []string
 	var varNode     *variableNode 
 	var varTypeStr string  // the type pf the var 
-	var arrayTypeNode,channelTypeNode,mapTypeNode *astNode // if the variables are this class
+	var arrayTypeNode,channelTypeNode,mapTypeNode *parseNode // if the variables are this class
 	var numBits int        // number of bits in the type
 	var depth int          // channel depth (size of the buffer) 
 	var dimensions [] int  // slice which holds array dimensions 
@@ -633,8 +632,8 @@ func (l *argoListener) getAllVariables() int {
 	// for every AST node, see if it is a declaration
 	// if so, name the variable the _function_name_name
 	// for multiple instances of go functions, add the instance number
-	astNodeLoop: 
-	for _, node := range l.astNodeList {
+	parseNodeLoop: 
+	for _, node := range l.parseNodeList {
 		// find the enclosing function name
 		if (node.ruleType == "varDecl") || (node.ruleType == "parameterDecl") || (node.ruleType == "shortVarDecl") {
 
@@ -664,7 +663,7 @@ func (l *argoListener) getAllVariables() int {
 				// are not named variables with AST nodes 
 				if (identifierList == nil) {
 					if (node.ruleType == "parameterDecl") {
-						continue astNodeLoop ;
+						continue parseNodeLoop ;
 					}
 					fmt.Printf("Error at %s: no identifier list",_file_line_())
 					return 0
@@ -930,11 +929,11 @@ func (l *argoListener) setReturnTargets(funcExit,parent *statementNode) {
 // return a list of lists of any sub-statements from the blocks 
 // The structure is to create new statement nodes for all the childern in a main loop looking for
 // the types of the children nodes. Then the function creates the predecessors and successor edges
-func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *statementNode) []*statementNode {
-	var funcName *astNode               // name of the function
+func (l *argoListener) parseIfStmt(ifNode *parseNode,funcDecl *parseNode,ifStmt *statementNode) []*statementNode {
+	var funcName *parseNode               // name of the function
 	var funcStr  string                 // name of the function as a string 
-	var subNode        *astNode         // sub-simple statement type
-	var ifSubStmtNode *astNode          // if we have an ifSubstatement, put a pointer to it here 
+	var subNode        *parseNode         // sub-simple statement type
+	var ifSubStmtNode *parseNode          // if we have an ifSubstatement, put a pointer to it here 
 	
 	var childStmt, simpleStmt, testStmt, takenStmt, elseStmt,subIfStmt *statementNode
 	var takenHead,takenTail, elseHead,elseTail, headStmt, tailStmt *statementNode
@@ -1116,12 +1115,12 @@ func (l *argoListener) parseIfStmt(ifNode *astNode,funcDecl *astNode,ifStmt *sta
 // This parses a for statement.
 // It tried to get the block and forClause first. Then it walks the children of the for clause and creates new
 // statement nodes as it walks the forClause. The end of the function creates the edges between the statement nodes 
-func (l *argoListener) parseForStmt(forNode *astNode,funcDecl *astNode,forStmt *statementNode) []*statementNode {
-	var funcName *astNode               // name of the function
+func (l *argoListener) parseForStmt(forNode *parseNode,funcDecl *parseNode,forStmt *statementNode) []*statementNode {
+	var funcName *parseNode               // name of the function
 	var funcStr  string                 // name of the function
-	var forClauseNode  *astNode              //  if this statement has a for clause
-	var forBlockNode   *astNode             // the block of statements for the for
-	var subNode        *astNode         // sub-simple statement type
+	var forClauseNode  *parseNode              //  if this statement has a for clause
+	var forBlockNode   *parseNode             // the block of statements for the for
+	var subNode        *parseNode         // sub-simple statement type
 	var statements []*statementNode       // list of statmements 
 	var blocklist []*statementNode          // list of statements for the block
 
@@ -1312,12 +1311,12 @@ func (l *argoListener) parseForStmt(forNode *astNode,funcDecl *astNode,forStmt *
 	return statements 
 }
 
-func (l *argoListener) parseSwitchStmt(switchnode *astNode,funcDecl *astNode) [][]*statementNode {
+func (l *argoListener) parseSwitchStmt(switchnode *parseNode,funcDecl *parseNode) [][]*statementNode {
 	return nil
 }
 
 
-func (l *argoListener) parseSelectStmt(selectnode *astNode,funcDecl *astNode) [][]*statementNode {
+func (l *argoListener) parseSelectStmt(selectnode *parseNode,funcDecl *parseNode) [][]*statementNode {
 	return nil
 }
 
@@ -1325,7 +1324,7 @@ func (l *argoListener) parseSelectStmt(selectnode *astNode,funcDecl *astNode) []
 // create a return variable node. When a return happens, we store the value
 // in this generated variable and treat the return as an expression with
 // additional control flow 
-func (l *argoListener) makeReturnVariable(identifierR_type *astNode,funcName string) *variableNode {
+func (l *argoListener) makeReturnVariable(identifierR_type *parseNode,funcName string) *variableNode {
 	var varTypeStr string
 	var numBits int 
 	var retVarNode *variableNode
@@ -1366,11 +1365,11 @@ func (l *argoListener) makeReturnVariable(identifierR_type *astNode,funcName str
 // get a list of all the functions
 // assumes variables are already parsed to look up the parameters 
 func (l *argoListener) getAllFunctions() {
-	var funcName *astNode    // name of the function -- AST node 
+	var funcName *parseNode    // name of the function -- AST node 
 	var funcStr string       // name of the function as a string. Must be unique
-	var resultNode *astNode  // node for the result 
-	var retParams *astNode    // the parameters for the return values for a function call
-	var identifierR_type *astNode  // node for getting the primitive type 
+	var resultNode *parseNode  // node for the result 
+	var retParams *parseNode    // the parameters for the return values for a function call
+	var identifierR_type *parseNode  // node for getting the primitive type 
 	var fNode *functionNode   // node of the function we are creating 
 
 	var retVarNode *variableNode // the variable node for the return value 
@@ -1380,7 +1379,7 @@ func (l *argoListener) getAllFunctions() {
 		fmt.Printf("Error: at %s, warning no variables in getallfunctions\n",_file_line_())
 	}
 
-	for i, funcDecl := range l.astNodeList {
+	for i, funcDecl := range l.parseNodeList {
 		if (funcDecl.ruleType == "functionDecl") {
 			if (len(funcDecl.children) < 2) {  // need assertions here 
 				fmt.Printf("Error at %s: %d no function name",_file_line_(),i)
@@ -1439,12 +1438,12 @@ func (l *argoListener) getAllFunctions() {
 
 // Given a statementlist, return a list of statementNodes
 // Uses recursion to follow if and for, case and select statements
-func (l *argoListener) getListOfStatements(listnode *astNode,parentStmt *statementNode,funcDecl *astNode) []*statementNode {
-	var funcName *astNode  // name of the function for the current statement
+func (l *argoListener) getListOfStatements(listnode *parseNode,parentStmt *statementNode,funcDecl *parseNode) []*statementNode {
+	var funcName *parseNode  // name of the function for the current statement
 	var funcStr  string   //  string name of the function
-	var subNode *astNode  // current statement node
-	var eosNode *astNode  // the end of the statement list node 
-	var stmtTypeNode *astNode // which simpleStmt type is this?, e.g ifStmt, shortVarDecl, forStmt.
+	var subNode *parseNode  // current statement node
+	var eosNode *parseNode  // the end of the statement list node 
+	var stmtTypeNode *parseNode // which simpleStmt type is this?, e.g ifStmt, shortVarDecl, forStmt.
 	var statementList []*statementNode
 	var predecessorStmt *statementNode 
 	var stateNode *statementNode
@@ -1651,8 +1650,8 @@ func (l *argoListener) getFunctionStmtEntry(funcName string) *statementNode {
 // add edges to the caller 
 func (l *argoListener) addCallandReturnEdges() {
 	var funcEntryNode,functionExitNode *statementNode
-	var retList []*astNode
-	var parentNode, operandNameNode *astNode
+	var retList []*parseNode
+	var parentNode, operandNameNode *parseNode
 	var calleeNameStr string
 
 	for _, stmtNode := range(l.statementGraph) {
@@ -1707,29 +1706,50 @@ func (l *argoListener) addCallandReturnEdges() {
 	}
 }
 
-// for assignment and short var decls, add the left and right hand sides of the expressions 
-func (l *argoListener) addVarsignments() {
-	var operandNameNode *statementNode
-	var varStr string
+
+// convert the right hand side of an expression to a string 
+func (l *argoListener) rightHandSideStr() {
+	
+}
+	
+// for assignment and short var decls, add the left and right hand sides of the assignment expression
+func (l *argoListener) addVarAssignments() {
+	var funcStr,varStr string
+	var parseNode, funcParseNode, funcNameNode,  operandNameNode *parseNode
 	
 	for _, stmtNode := range(l.statementGraph) {
 		stmtNode.visited = false 
 	}
 
-
 	// these statement types may have a variable assignment 
 	for _, stmtNode := range(l.statementGraph) {
-		// statement types which may have an assignment 
+		// statement types which may have an assignment
+		fmt.Printf("got statement Node id %d type %s \n",stmtNode.id,stmtNode.stmtType)
 		if ((stmtNode.stmtType == "assignment") || (stmtNode.stmtType == "shortVarDecl") || 
 			(stmtNode.stmtType == "sendStmt")) {
 
-			funcNameNode = stmtNode.astDef.walkUpToRule("functionDecl")
-			
-			operandNameNode = stmtNode.children[0].astDef.walkDownToRule("operandName")
-			varStr = operandNameNode.children[0].ruleType
-			
+
+			parseNode = stmtNode.astDef
+			funcParseNode = parseNode.walkUpToRule("functionDecl")
+			funcNameNode = funcParseNode.children[1]
+			funcStr = funcNameNode.ruleType
+			if ((stmtNode.stmtType == "assignment") || (stmtNode.stmtType == "sendStmt")) { 
+				operandNameNode = parseNode.walkDownToRule("operandName")
+				varStr = operandNameNode.children[0].ruleType
+			}
+
+			// TODO: need to fix this to be able to return multiple values for a short vardecl
+			// that returns multiple values. 
+			if (stmtNode.stmtType == "shortVarDecl")  { 
+				operandNameNode = parseNode.walkDownToRule("identifierList")
+				varStr = operandNameNode.children[0].ruleType
+			}
+
+			fmt.Printf("got left-hand assignment rules func %s at (%d,%d) var %s\n",funcStr,
+				parseNode.sourceLineStart,parseNode.sourceColStart,varStr) 
 		}
 
+	}
 }
 
 // Generate a control flow graph (CFG) at the statement level.
@@ -1739,12 +1759,12 @@ func (l *argoListener) addVarsignments() {
 // Assumes there is only one statement list per function (fixme)
 
 func (l *argoListener) getStatementGraph() int {
-	var sourceFile *astNode // source file high level node
-	var funcDecl *astNode  // Function Declaration 
-	var funcName *astNode  // name of the function for the current statement
-	var blockNode *astNode
-	var stmtListNode *astNode   // the statement node
-	var funcEOS  *astNode // exit node of the function 
+	var sourceFile *parseNode // source file high level node
+	var funcDecl *parseNode  // Function Declaration 
+	var funcName *parseNode  // name of the function for the current statement
+	var blockNode *parseNode
+	var stmtListNode *parseNode   // the statement node
+	var funcEOS  *parseNode // exit node of the function 
 	var funcStr  string   //  string name of the function
 	
 	var entryNode,exitNode *statementNode // function declation is the entry node in the graph
@@ -1752,12 +1772,12 @@ func (l *argoListener) getStatementGraph() int {
 
 	
 	// mark all nodes as not visited 
-	for _, node := range l.astNodeList {
+	for _, node := range l.parseNodeList {
 		node.visited = false
 	}
 
 	// find the high level function declarations in the source file
-	sourceFile = l.astNodeList[0]
+	sourceFile = l.parseNodeList[0]
 	if (sourceFile.ruleType != "SourceFile") {
 		fmt.Printf("Error! first AST node not a SourceFile\n")
 		return 0 
@@ -1871,11 +1891,15 @@ func (l *argoListener) getStatementGraph() int {
 	for _, stmtNode := range(l.statementGraph) {
 		stmtNode.visited = false 
 	}
+
+	// fix up various edges
 	l.addInternalReturnEdges()
-	l.addCallandReturnEdges()
-	
 	// Add call and return edges
-	
+	l.addCallandReturnEdges()
+
+	// start the data flow section with the assignments 
+	l.addVarAssignments()
+		
 	return 1
 } // end getStatementGraph 
 
@@ -1886,7 +1910,7 @@ func (l *argoListener) printASTnodes(outputStyle string) {
 	var nodeStr string // name of the AST node 
 	
 	if (outputStyle == "rawWithText") { 
-		for _, node := range l.astNodeList {
+		for _, node := range l.parseNodeList {
 			fmt.Printf("AST Nodes: %d: %s ::%s:: @(%d,%d),(%d,%d) parent: %d children: ", node.id, node.ruleType, node.sourceCode, node.sourceLineStart, node.sourceColStart, node.sourceLineEnd, node.sourceColEnd, node.parentID )
  			for _, childID := range node.childIDs {
 				fmt.Printf("%d ",childID)
@@ -1902,7 +1926,7 @@ func (l *argoListener) printASTnodes(outputStyle string) {
 		nodeID2Name := make(map[int] string)
 
 		// build a map of IDs to names 
-		for _, node := range l.astNodeList {
+		for _, node := range l.parseNodeList {
 			nodeStr = strconv.Itoa(node.id) + ":" + node.ruleType
 			if len(node.sourceCode) <= 5 {
 				nodeStr = nodeStr+":"+node.sourceCode
@@ -1914,7 +1938,7 @@ func (l *argoListener) printASTnodes(outputStyle string) {
 		}
 		// now print the graph 
 		fmt.Printf("Digraph G { \n") 
-		for _, node := range l.astNodeList {
+		for _, node := range l.parseNodeList {
 			if len(node.childIDs) > 0 { 
 				nodeStr = nodeID2Name[node.id]
 				for _, childID := range node.childIDs {
@@ -2030,7 +2054,7 @@ func (l *argoListener) printStatementGraph() {
 }
 
 // recursive function to visit nodes in the Antlr4 graph 
-func VisitNode(l *argoListener,c antlr.Tree, parent *astNode,level int) astNode {
+func VisitNode(l *argoListener,c antlr.Tree, parent *parseNode,level int) parseNode {
 	var progText string
 	var err error
 	var id int 
@@ -2066,7 +2090,7 @@ func VisitNode(l *argoListener,c antlr.Tree, parent *astNode,level int) astNode 
 	
 	ruleName := antlr.TreesGetNodeText(c,nil,l.recog)
 
-	thisNode := astNode{id : id , ruleType : ruleName, parentID: parent.id, parent: parent, sourceCode: progText , isTerminal : isTerminalNode, sourceLineStart: startline, sourceColStart : startcol, sourceLineEnd : stopline, sourceColEnd : stopcol }
+	thisNode := parseNode{id : id , ruleType : ruleName, parentID: parent.id, parent: parent, sourceCode: progText , isTerminal : isTerminalNode, sourceLineStart: startline, sourceColStart : startcol, sourceLineEnd : stopline, sourceColEnd : stopcol }
 	thisNode.visited = false
 	
 	for i := 0; i < c.GetChildCount(); i++ {
@@ -2091,7 +2115,7 @@ func (l *argoListener) EnterSourceFile(c *parser.SourceFileContext) {
 	id = l.getAstID(c)
 
 	// get the root AST node
-	root := astNode{ id : id, parentID : 0, parent : nil , ruleType: "SourceFile", sourceCode : "WholeProgramText" } 
+	root := parseNode{ id : id, parentID : 0, parent : nil , ruleType: "SourceFile", sourceCode : "WholeProgramText" } 
 
 
 	
@@ -2108,8 +2132,8 @@ func (l *argoListener) EnterSourceFile(c *parser.SourceFileContext) {
 	l.addASTnode(&root)
 
 	// sort all the nodes by nodeID in the list of nodes 
-	sort.Slice(l.astNodeList, func(i, j int) bool {
-		return l.astNodeList[i].id < l.astNodeList[j].id
+	sort.Slice(l.parseNodeList, func(i, j int) bool {
+		return l.parseNodeList[i].id < l.parseNodeList[j].id
 	})
 
 	
@@ -2255,7 +2279,7 @@ func parseArgo(fname *string) *argoListener {
 	listener.ProgramLines = progLines
 
 	listener.nextAstID = 0
-	listener.astNode2ID = make(map[interface{}]int)
+	listener.parseNode2ID = make(map[interface{}]int)
 
 	listener.nextVarID = 0
 	listener.varNode2ID = make(map[interface{}]int)
