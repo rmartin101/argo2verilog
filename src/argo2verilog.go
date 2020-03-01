@@ -192,7 +192,7 @@ type statementNode struct {
 	succIDs        []int       // IDs of the successors
 	parent         *statementNode // the parent node for this block
 	parentID       int            // the parent node ID for this block
-	child         *statementNode // If there is a child node for this block
+	child         *statementNode // If there is a child node for this block. Defines scope 
 	childID       int            // Child ID for this block 
 	ifSimple *statementNode     // The enclosed block of sub-statements for the else clause
 	ifTest   *statementNode     // The test expression 
@@ -599,6 +599,25 @@ func (node *parseNode) getChannelDepth() (int) {
 	}
 	
 	return queueSize
+}
+
+// return a variable node by the package, function and variable name 
+func (l *argoListener) getVarNodebyNames(packageName,funcName,varName string) *variableNode {
+
+	// TODO: add packages to the name-spaces 
+	if (packageName != "") {
+		fmt.Printf("Warning: Package namespaces not supported yet\n")
+	}
+
+	// TODO: need a hash map ist
+	for _, varNode := range l.varNodeList {
+		
+		if ((varNode.funcName == funcName) && (varNode.sourceName == varName)) {
+			return varNode 
+		}
+	}
+	
+	return nil
 }
 
 func (l *argoListener) getAllVariables() int {
@@ -1390,8 +1409,8 @@ func (l *argoListener) getAllFunctions() {
 				fNode = new(functionNode)
 				fNode.id = l.nextFuncID; l.nextFuncID++
 				fNode.funcName = funcStr
-				fNode.sourceRow = funcName.sourceLineStart
-				fNode.sourceCol = funcName.sourceColStart
+				fNode.sourceRow = funcDecl.sourceLineStart
+				fNode.sourceCol = funcDecl.sourceColStart
 				l.funcNodeList = append(l.funcNodeList,fNode)
 				l.funcNameMap[funcStr] = fNode
 
@@ -1410,7 +1429,8 @@ func (l *argoListener) getAllFunctions() {
 					if (retParams == nil) { // this is case we have single parameter
 						identifierR_type = resultNode.walkDownToRule("r_type")
 						retVarNode =  l.makeReturnVariable(identifierR_type,funcStr)
-
+						fNode.retVars = append(fNode.retVars,retVarNode)
+						fNode.retVarsIDs = append(fNode.retVarsIDs,retVarNode.id)
 					} else { // we have a parameter list 
 						for _, typeNode := range retParams.children {
 							identifierR_type = typeNode.walkDownToRule("r_type")
@@ -1418,6 +1438,9 @@ func (l *argoListener) getAllFunctions() {
 							retVarNode =  l.makeReturnVariable(identifierR_type,funcStr)
 							if (retVarNode == nil) {
 								fmt.Printf("Error making return var node\n")
+							} else {
+								fNode.retVars = append(fNode.retVars,retVarNode)
+								fNode.retVarsIDs = append(fNode.retVarsIDs,retVarNode.id)
 							}
 						}
 					}
@@ -1716,7 +1739,8 @@ func (l *argoListener) rightHandSideStr() {
 func (l *argoListener) addVarAssignments() {
 	var funcStr,varStr string
 	var parseNode, funcParseNode, funcNameNode,  operandNameNode *parseNode
-	
+	var varNode *variableNode
+
 	for _, stmtNode := range(l.statementGraph) {
 		stmtNode.visited = false 
 	}
@@ -1744,9 +1768,19 @@ func (l *argoListener) addVarAssignments() {
 				operandNameNode = parseNode.walkDownToRule("identifierList")
 				varStr = operandNameNode.children[0].ruleType
 			}
-
 			fmt.Printf("got left-hand assignment rules func %s at (%d,%d) var %s\n",funcStr,
-				parseNode.sourceLineStart,parseNode.sourceColStart,varStr) 
+				parseNode.sourceLineStart,parseNode.sourceColStart,varStr)
+
+			varNode = l.getVarNodebyNames("",funcStr,varStr)
+			if (varNode == nil) {
+				fmt.Printf("Error, at %d no variable func %s name %s\n",_file_line_(),funcStr,varStr)
+				continue
+			}
+			// add this variable to the list of write variables 
+			stmtNode.writeVars = append(stmtNode.writeVars,varNode)
+			
+			
+			
 		}
 
 	}
@@ -1954,7 +1988,7 @@ func (l *argoListener) printASTnodes(outputStyle string) {
 func (l *argoListener) printVarNodes() {
 
 	for _, node := range l.varNodeList {
-		fmt.Printf("Variable:%d name:%s func:%s pos:(%d,%d) class:%s prim:%s size:%d param:%t result:%t ",
+		fmt.Printf("Variable: %d name: %s func: %s pos:(%d,%d) class:%s prim:%s size:%d param:%t result:%t ",
 			node.id,node.sourceName,node.funcName,node.sourceRow,node.sourceCol,
 			node.goLangType,node.primType, node.numBits,node.isParameter,node.isResult)
 		switch (node.goLangType) {
@@ -1968,6 +2002,26 @@ func (l *argoListener) printVarNodes() {
 		case "channel":
 			fmt.Printf("depth %d ",node.depth)
 		case "numeric":
+		}
+		fmt.Printf("\n")
+	}
+}
+
+// print the list of functions 
+func (l *argoListener) printFuncNodes() {
+	for _, node := range l.funcNodeList {
+		fmt.Printf("Func: %d: name %s at (%d,%d) ", node.id,node.funcName,node.sourceRow,node.sourceCol)
+		if (len(node.parameters) >0) {
+			fmt.Printf("params: ")
+			for _, param := range(node.parameters) {
+				fmt.Printf("[%s:%s:%d] ",param.sourceName,param.goLangType,param.numBits)
+			}
+		}
+		if ( len(node.retVars) >0 ) {
+			fmt.Printf("retVars: ")
+			for _, param := range(node.retVars) {
+				fmt.Printf("[%s:%s:%d] ",param.sourceName,param.goLangType,param.numBits)
+			}			
 		}
 		fmt.Printf("\n")
 	}
@@ -2314,11 +2368,12 @@ func parseArgo(fname *string) *argoListener {
 func main() {
 	var parsedProgram *argoListener 
 	var inputFileName_p *string
-	var printASTasGraphViz_p,printVarNames_p,printStmtGraph_p *bool
+	var printASTasGraphViz_p,printVarNames_p,printFuncNames_p,printStmtGraph_p *bool
 	
 	printASTasGraphViz_p = flag.Bool("gv",false,"print AST in GraphViz format")
 	printVarNames_p = flag.Bool("vars",false,"print all variables")
 	printStmtGraph_p = flag.Bool("stmt",false,"print statement graph")
+	printFuncNames_p = flag.Bool("func",false,"print statement graph")
 	inputFileName_p = flag.String("i","input.go","input file name")
 
 	flag.Parse()
@@ -2338,6 +2393,11 @@ func main() {
 		
 	}
 
+	if (*printFuncNames_p) {
+		parsedProgram.printFuncNodes()
+		
+	}
+	
 	parsedProgram.getStatementGraph()  // now make the statementgraph 
 
 	if (*printStmtGraph_p) {
