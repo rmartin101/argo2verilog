@@ -602,7 +602,7 @@ func (node *parseNode) getChannelDepth() (int) {
 }
 
 // return a variable node by the package, function and variable name 
-func (l *argoListener) getVarNodebyNames(packageName,funcName,varName string) *variableNode {
+func (l *argoListener) getVarNodeByNames(packageName,funcName,varName string) *variableNode {
 
 	// TODO: add packages to the name-spaces 
 	if (packageName != "") {
@@ -620,6 +620,26 @@ func (l *argoListener) getVarNodebyNames(packageName,funcName,varName string) *v
 	return nil
 }
 
+// get a function node by string name 
+func (l *argoListener) getFuncNodeByNames(packageName,funcName string) *functionNode {
+
+	// TODO: add packages to the name-spaces 
+	if (packageName != "") {
+		fmt.Printf("Warning: Package namespaces not supported yet\n")
+	}
+
+	
+	// TODO: need a hash map ist
+	for _, funcNode := range l.funcNodeList {
+		
+		if (funcNode.funcName == funcName) {
+			return funcNode
+		}
+	}
+	
+	return nil
+}
+	
 func (l *argoListener) getAllVariables() int {
 	var funcDecl *parseNode
 	var identifierList,identifierR_type *parseNode
@@ -835,17 +855,6 @@ func (l *argoListener) getAllVariables() int {
 
 	return 1
 	
-}
-
-func printStatementList(stmts []*statementNode) {
-	if (len(stmts) == 0) {
-		fmt.Printf("\t\t <none> \n ")
-	} else { 
-		for i, stmt := range stmts {
-			fmt.Printf("\t\t stmt index %d node id %d \n ",i,stmt.id)
-		}
-	}
-
 }
 
 // Rules for edge dangles:
@@ -1656,6 +1665,7 @@ func (l *argoListener) addInternalReturnEdges() {
 	}
 }
 
+// get a function statement Node by the functions name 
 func (l *argoListener) getFunctionStmtEntry(funcName string) *statementNode {
 	for _, stmtNode := range(l.statementGraph) {
 		stmtNode.visited = false
@@ -1740,23 +1750,36 @@ func (l *argoListener) addVarAssignments() {
 	var funcStr,varStr string
 	var parseNode, funcParseNode, funcNameNode,  operandNameNode *parseNode
 	var varNode *variableNode
-
+	var funcNode *functionNode
+	
 	for _, stmtNode := range(l.statementGraph) {
 		stmtNode.visited = false 
 	}
 
 	// these statement types may have a variable assignment 
 	for _, stmtNode := range(l.statementGraph) {
+
+		// get the function header 
+		if ((stmtNode.stmtType == "assignment") || (stmtNode.stmtType == "shortVarDecl") || 
+			(stmtNode.stmtType == "sendStmt") || (stmtNode.stmtType == "funcDecl") ||
+			(stmtNode.stmtType == "returnStmt")) {
+			
+			parseNode = stmtNode.astDef
+			funcParseNode = parseNode.walkUpToRule("functionDecl")
+			funcNameNode = funcParseNode.children[1]
+			funcStr = funcNameNode.ruleType
+		}
 		// statement types which may have an assignment
-		fmt.Printf("got statement Node id %d type %s \n",stmtNode.id,stmtNode.stmtType)
 		if ((stmtNode.stmtType == "assignment") || (stmtNode.stmtType == "shortVarDecl") || 
 			(stmtNode.stmtType == "sendStmt")) {
-
 
 			parseNode = stmtNode.astDef
 			funcParseNode = parseNode.walkUpToRule("functionDecl")
 			funcNameNode = funcParseNode.children[1]
 			funcStr = funcNameNode.ruleType
+
+			// make sure we get all the variables in the assignment for
+			// when there are multiple return statements 
 			if ((stmtNode.stmtType == "assignment") || (stmtNode.stmtType == "sendStmt")) { 
 				operandNameNode = parseNode.walkDownToRule("operandName")
 				varStr = operandNameNode.children[0].ruleType
@@ -1768,22 +1791,44 @@ func (l *argoListener) addVarAssignments() {
 				operandNameNode = parseNode.walkDownToRule("identifierList")
 				varStr = operandNameNode.children[0].ruleType
 			}
-			fmt.Printf("got left-hand assignment rules func %s at (%d,%d) var %s\n",funcStr,
-				parseNode.sourceLineStart,parseNode.sourceColStart,varStr)
+			// fmt.Printf("got left-hand assignment rules func %s at (%d,%d) var %s\n",funcStr,
+			// parseNode.sourceLineStart,parseNode.sourceColStart,varStr)
 
-			varNode = l.getVarNodebyNames("",funcStr,varStr)
+			varNode = l.getVarNodeByNames("",funcStr,varStr)
 			if (varNode == nil) {
-				fmt.Printf("Error, at %d no variable func %s name %s\n",_file_line_(),funcStr,varStr)
+				fmt.Printf("Error!, at %d no variable func %s name %s\n",_file_line_(),funcStr,varStr)
 				continue
 			}
 			// add this variable to the list of write variables 
 			stmtNode.writeVars = append(stmtNode.writeVars,varNode)
-			
-			
-			
+
+			// get the expression on the right hand side 
 		}
 
-	}
+		// function entry copies the parameters
+		// function return copies the RHS into the list of return values 
+		if ( (stmtNode.stmtType == "funcDecl") || (stmtNode.stmtType == "returnStmt")) {
+			
+			funcNode = l.getFuncNodeByNames("",funcStr)
+			if (funcNode == nil) {
+				fmt.Printf("Error! at %d no func %s name \n",_file_line_(),funcStr)
+				continue
+			}
+
+			if (stmtNode.stmtType == "funcDecl") {
+				for _, funcVar := range(funcNode.parameters) {
+					stmtNode.writeVars = append(stmtNode.writeVars,funcVar)
+				}
+			}
+			
+			if (stmtNode.stmtType == "returnStmt") {
+				for _, retVar := range(funcNode.retVars) {
+					stmtNode.writeVars = append(stmtNode.writeVars,retVar)
+				}				
+			}
+		}
+
+	} // end for all statements 
 }
 
 // Generate a control flow graph (CFG) at the statement level.
@@ -1937,9 +1982,23 @@ func (l *argoListener) getStatementGraph() int {
 	return 1
 } // end getStatementGraph 
 
-// print all the AST nodes. Can be in rawWithText mode, which includes the source code with each node, or
+
+/* ***************  Print Structures Section   ********************** */
+
+func printStatementList(stmts []*statementNode) {
+	if (len(stmts) == 0) {
+		fmt.Printf("\t\t <none> \n ")
+	} else { 
+		for i, stmt := range stmts {
+			fmt.Printf("\t\t stmt index %d node id %d \n ",i,stmt.id)
+		}
+	}
+
+}
+
+// print all the ParseTree nodes. Can be in rawWithText mode, which includes the source code with each node, or
 // in dotShort mode, which is a graphViz format suitable for making graphs with the dot program 
-func (l *argoListener) printASTnodes(outputStyle string) {
+func (l *argoListener) printParseTreeNodes(outputStyle string) {
 
 	var nodeStr string // name of the AST node 
 	
@@ -2074,7 +2133,13 @@ func (l *argoListener) printStatementGraph() {
 				j++
 			}		
 		}
-		
+
+		if len(node.writeVars) >0 {
+			fmt.Printf(" writeVars: ")
+			for _, varNode := range( node.writeVars) {
+				fmt.Printf("%s  ", varNode.sourceName)
+			}
+		}
 		// Get sub statement lists for this node
 		// Get sub statement lists for this node
 		switch node.stmtType { 
@@ -2370,7 +2435,7 @@ func main() {
 	var inputFileName_p *string
 	var printASTasGraphViz_p,printVarNames_p,printFuncNames_p,printStmtGraph_p *bool
 	
-	printASTasGraphViz_p = flag.Bool("gv",false,"print AST in GraphViz format")
+	printASTasGraphViz_p = flag.Bool("gv",false,"print the parse tree in GraphViz format")
 	printVarNames_p = flag.Bool("vars",false,"print all variables")
 	printStmtGraph_p = flag.Bool("stmt",false,"print statement graph")
 	printFuncNames_p = flag.Bool("func",false,"print statement graph")
@@ -2384,8 +2449,8 @@ func main() {
 	parsedProgram.getAllFunctions()  // then get all functions 
 	
 	if (*printASTasGraphViz_p) {
-		parsedProgram.printASTnodes("rawWithText")
-		//parsedProgram.printASTnodes("dotShort")
+		parsedProgram.printParseTreeNodes("rawWithText")
+		//parsedProgram.printParseTreeNodes("dotShort")
 	}
 
 	if (*printVarNames_p) {
