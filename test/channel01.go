@@ -13,13 +13,14 @@ func snafu(a int, b [55]int) int {
 	return c+d; 
 }; 
 
+
 func fubar(done chan int, z int) {
 	var i,k int ; 
 
 	i = 1 ; 
 	k = i + z ;
 
-	done <- k ; 
+	done <- i+ k ; 
 }; 
 
 func pass() {

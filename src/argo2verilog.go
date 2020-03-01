@@ -1747,10 +1747,13 @@ func (l *argoListener) rightHandSideStr() {
 	
 // for assignment and short var decls, add the left and right hand sides of the assignment expression
 func (l *argoListener) addVarAssignments() {
-	var funcStr,varStr string
-	var parseNode, funcParseNode, funcNameNode,  operandNameNode *parseNode
+	var funcStr string
+	var varStrList []string 
+	var parsedNode, funcParseNode, funcNameNode,lhsNode,operandNameNode *parseNode
+	var operandNameNodeList []*parseNode 
 	var varNode *variableNode
 	var funcNode *functionNode
+	var varStr string
 	
 	for _, stmtNode := range(l.statementGraph) {
 		stmtNode.visited = false 
@@ -1759,48 +1762,68 @@ func (l *argoListener) addVarAssignments() {
 	// these statement types may have a variable assignment 
 	for _, stmtNode := range(l.statementGraph) {
 
+
 		// get the function header 
 		if ((stmtNode.stmtType == "assignment") || (stmtNode.stmtType == "shortVarDecl") || 
 			(stmtNode.stmtType == "sendStmt") || (stmtNode.stmtType == "funcDecl") ||
 			(stmtNode.stmtType == "returnStmt")) {
 			
-			parseNode = stmtNode.astDef
-			funcParseNode = parseNode.walkUpToRule("functionDecl")
+			parsedNode = stmtNode.astSubDef
+			funcParseNode = parsedNode.walkUpToRule("functionDecl")
 			funcNameNode = funcParseNode.children[1]
 			funcStr = funcNameNode.ruleType
+
+			operandNameNodeList = make([]*parseNode,0)
+			varStrList = make([]string,0)
 		}
 		// statement types which may have an assignment
 		if ((stmtNode.stmtType == "assignment") || (stmtNode.stmtType == "shortVarDecl") || 
 			(stmtNode.stmtType == "sendStmt")) {
 
-			parseNode = stmtNode.astDef
-			funcParseNode = parseNode.walkUpToRule("functionDecl")
+			// get the left hand side of the statement 
+
+			parsedNode = stmtNode.astSubDef
+			lhsNode = parsedNode.children[0]
+			
+			funcParseNode = parsedNode.walkUpToRule("functionDecl")
 			funcNameNode = funcParseNode.children[1]
 			funcStr = funcNameNode.ruleType
 
 			// make sure we get all the variables in the assignment for
-			// when there are multiple return statements 
-			if ((stmtNode.stmtType == "assignment") || (stmtNode.stmtType == "sendStmt")) { 
-				operandNameNode = parseNode.walkDownToRule("operandName")
-				varStr = operandNameNode.children[0].ruleType
+			// when there are multiple ones in a return statement
+			if (stmtNode.stmtType == "assignment") {
+					operandNameNodeList = lhsNode.walkDownToAllRules("operandName")
+				for _, opNode := range(operandNameNodeList) {
+					varStrList = append(varStrList,opNode.children[0].ruleType)
+				}
+				
+			}
+
+			// channels cannot accept mulitple values 	
+			if (stmtNode.stmtType == "sendStmt") { 
+				operandNameNode = parsedNode.walkDownToRule("operandName")
+				varStrList = append(varStrList,operandNameNode.children[0].ruleType)
 			}
 
 			// TODO: need to fix this to be able to return multiple values for a short vardecl
 			// that returns multiple values. 
 			if (stmtNode.stmtType == "shortVarDecl")  { 
-				operandNameNode = parseNode.walkDownToRule("identifierList")
-				varStr = operandNameNode.children[0].ruleType
+				operandNameNode = parsedNode.walkDownToRule("identifierList")
+				varStrList = append(varStrList,operandNameNode.children[0].ruleType)
 			}
-			// fmt.Printf("got left-hand assignment rules func %s at (%d,%d) var %s\n",funcStr,
-			// parseNode.sourceLineStart,parseNode.sourceColStart,varStr)
 
-			varNode = l.getVarNodeByNames("",funcStr,varStr)
-			if (varNode == nil) {
-				fmt.Printf("Error!, at %d no variable func %s name %s\n",_file_line_(),funcStr,varStr)
-				continue
+			// parsedNode.sourceLineStart,parsedNode.sourceColStart,varStr)
+
+			// iterate through the variables names and and them to the LHS expression 
+			for _, varStr = range(varStrList) {
+				varNode = l.getVarNodeByNames("",funcStr,varStr)
+				if (varNode == nil) {
+					fmt.Printf("Error!, at %d no variable func %s name %s\n",_file_line_(),funcStr,varStr)
+					continue
+				}
+				stmtNode.writeVars = append(stmtNode.writeVars,varNode)
 			}
-			// add this variable to the list of write variables 
-			stmtNode.writeVars = append(stmtNode.writeVars,varNode)
+
 
 			// get the expression on the right hand side 
 		}
