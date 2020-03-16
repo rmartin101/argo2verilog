@@ -47,15 +47,19 @@ module argo_fifo_bench();
    wire pipe_1_full;
    wire pipe_1_empty;
 
-   reg [PIPE_2_WIDTH-1:0 ] pipe_1_write_data;
-   wire [PIPE_2_WIDTH-1:0 ] pipe_1_read_data;
+   reg  [PIPE_2_WIDTH-1:0 ] pipe_2_write_data;
+   wire [PIPE_2_WIDTH-1:0 ] pipe_2_read_data;
    reg pipe_2_rd_en_reg;
    reg pipe_2_wr_en_reg;   
    wire pipe_2_full;
    wire pipe_2_empty;
 
-/* channels */   
-argo_fifo #(.ADDR_WIDTH(PIPE_1_ADDR_WIDTH),.DATA_WIDTH(PIPE_1_WIDTH),.DEPTH(1<<PIPE_1_ADDR_WIDTH)) PIPE_1 (
+/* channels */
+   // Note we have to create a wires for all inputs or verilog complains.
+   // We assign the reg to a wire and use the input to the wire which allows
+   // assignment to the reg without a problem
+
+argo_fifo #(.ADDR_WIDTH(PIPE_1_ADDR_WIDTH),.DATA_WIDTH(PIPE_1_WIDTH),.DEPTH(1<<PIPE_1_ADDR_WIDTH),.FIFO_ID(1)) PIPE_1 (
     .clk(clk),
     .rst(rst),		 
     .rd_en(pipe_1_rd_en_reg),
@@ -67,7 +71,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_1_ADDR_WIDTH),.DATA_WIDTH(PIPE_1_WIDTH),.DEPTH(1<<P
 );
  
 
-argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_WIDTH),.DEPTH(1<<PIPE_2_ADDR_WIDTH)) PIPE_2 (
+argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_WIDTH),.DEPTH(1<<PIPE_2_ADDR_WIDTH),.FIFO_ID(5)) PIPE_2 (
     .clk(clk),
     .rst(rst),		 
     .rd_en(pipe_2_rd_en_reg),
@@ -83,9 +87,13 @@ initial begin
    Y1=0;
    cycle_count =0 ;
 
-   pipe_1_rd_en_reg =0;
-   pipe_1_wr_en_reg =0;
-   pipe_1_write_data =0;
+   pipe_1_rd_en_reg = 1'b0;
+   pipe_1_wr_en_reg = 0;
+   pipe_1_write_data = 0;
+
+   pipe_2_rd_en_reg = 0;
+   pipe_2_wr_en_reg = 0;
+   pipe_2_write_data = 0;
    
    c_bit_00001 =0 ;
    c_bit_00002 =0 ;
@@ -139,7 +147,7 @@ end
 
 /**** channel 1 reader data  flow section ****/
 always @(posedge clk) begin // data flow for read enable on FIFO 1 
-   if ((c_bit_00105 == 1) && (!(pipe_1_empty )))begin
+   if ((c_bit_00103 == 1) && (!(pipe_1_empty )))begin
       pipe_1_rd_en_reg <= 1 ;
       $display("enabling read on pipe 1 cycle %d",cycle_count);
       end else begin 
@@ -148,9 +156,9 @@ always @(posedge clk) begin // data flow for read enable on FIFO 1
 end
 
 always @(posedge clk) begin // data flow for reads of the filo 
-   if (c_bit_00106 == 1) begin
+   if (c_bit_00105 == 1) begin
       X1 <= pipe_1_read_data;
-      $display("enabling read on pipe 1 %d cycle %d",X1,cycle_count);
+      $display("reading value on pipe 1 old-val: %d cycle %d",X1,cycle_count);
    end else begin 
       X1 <= X1;
    end
@@ -254,8 +262,8 @@ end // end @ posedge clk
 always @(posedge clk) begin // control for line c_bit_00103;
  	 if ( (c_bit_00102 == 1) && (!(pipe_1_empty))) begin 
  	    c_bit_00103 <= 1 ;
-	    $display("at control line 3 cycle count %d",cycle_count);
- 	 end 
+	    $display("at control line 103 cycle count %d",cycle_count); 
+	 end 
  	 else  begin 
  	    c_bit_00103 <= 0 ;  
  	 end
@@ -264,7 +272,7 @@ end // end @ posedge clk
 always @(posedge clk) begin // control for line c_bit_00104;
  	 if ( (c_bit_00103 == 1)) begin 
  	    c_bit_00104 <= 1 ;
-	    $display("at control line 4 cycle %d",cycle_count);
+	    $display("at control line 104 cycle %d",cycle_count);
  	 end 
  	 else  begin 
  	    c_bit_00104 <= 0 ;  
@@ -274,7 +282,7 @@ end // end @ posedge clk
 always @(posedge clk) begin // control for line c_bit_00105;
  	 if ( (c_bit_00104 == 1)) begin 
  	    c_bit_00105 <= 1 ;
-	    $display("at control line 5 cycle %d",cycle_count);
+	    $display("at control line 105 cycle %d",cycle_count);
  	 end 
  	 else  begin 
  	    c_bit_00105 <= 0 ;  
@@ -284,7 +292,7 @@ end // end @ posedge clk
 always @(posedge clk) begin // control for line c_bit_00106;
  	 if ( (c_bit_00105 == 1)) begin 
  	    c_bit_00106 <= 1 ;
-	    $display("at control line 6 cycle %d",cycle_count);
+	    $display("at control line 106 cycle %d X1 is %d",cycle_count,X1);
  	 end 
  	 else  begin 
  	    c_bit_00106 <= 0 ;  
@@ -294,7 +302,7 @@ end // end @ posedge clk
 always @(posedge clk) begin // control for line c_bit_00107;
  	 if ( (c_bit_00106 == 1)) begin 
  	    c_bit_00107 <= 1 ;
-	    $display("at control line 6 cycle %d",cycle_count);
+	    $display("at control line 107 cycle %d",cycle_count);
  	 end 
  	 else  begin 
  	    c_bit_00107 <= 0 ;  
@@ -304,7 +312,7 @@ end // end @ posedge clk
 always @(posedge clk) begin // control for line c_bit_00108;
  	 if ( (c_bit_00107 == 1)) begin 
  	    c_bit_00108 <= 1 ;
-	    $display("at control line 6 cycle %d",cycle_count);
+	    $display("at control line 108 cycle %d",cycle_count);
  	 end 
  	 else  begin 
  	    c_bit_00108 <= 0 ;  
