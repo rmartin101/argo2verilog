@@ -15,9 +15,16 @@
 */
 
 
-
 /* A FIFO template for Channels */
 /* this file is the template for the Verilog Templates for Channels */
+
+/* switch for positive vs negative resets */
+`ifdef NEGRESET
+  `define RESET (~(rst))
+`else
+  `define RESET (rst)
+`endif 
+
 
 module argo_fifo #(parameter ADDR_WIDTH=3, DATA_WIDTH=32, DEPTH = (1 << ADDR_WIDTH),FIFO_ID=7)
                   (clk, rst, rd_en, rd_data, wr_en, wr_data, full, empty );
@@ -58,7 +65,7 @@ module argo_fifo #(parameter ADDR_WIDTH=3, DATA_WIDTH=32, DEPTH = (1 << ADDR_WID
   /******** control logic ********/ 
    /* write pointer control */   
    always @(posedge clk) begin 
-      if (rst) begin
+      if `RESET begin
 	 fifo_id = FIFO_ID;
 	 write_ptr <= 0 ;
       end else if (wr_en) begin
@@ -71,7 +78,7 @@ module argo_fifo #(parameter ADDR_WIDTH=3, DATA_WIDTH=32, DEPTH = (1 << ADDR_WID
 
    /* read pointer control */      
    always @(posedge clk) begin 
-      if (rst) begin 
+      if `RESET begin 
 	 read_ptr <= 0 ;
       end else if (rd_en) begin
 	 $display("fifo %d increment read pointer at val %d cycle %d ",fifo_id, read_ptr,cycle_count);
@@ -83,7 +90,7 @@ module argo_fifo #(parameter ADDR_WIDTH=3, DATA_WIDTH=32, DEPTH = (1 << ADDR_WID
    
    /* item counter control */       
    always @ (posedge clk) begin
-      if (rst) begin
+      if `RESET begin
 	 item_cnt <= 0;
 	 // read an item 
       end else if ( ((rd_en) && !(wr_en)) && (item_cnt != 0)) begin
@@ -101,7 +108,7 @@ module argo_fifo #(parameter ADDR_WIDTH=3, DATA_WIDTH=32, DEPTH = (1 << ADDR_WID
 
    // leave a cycle counter in for now. Need it for debugging */
    always @(posedge clk) begin
-      if (rst) begin 
+      if `RESET begin 
 	 cycle_count <= 0 ;
       end else begin     
 	 cycle_count <= cycle_count + 1;

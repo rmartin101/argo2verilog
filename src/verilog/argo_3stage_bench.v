@@ -28,6 +28,10 @@
 
 parameter MAX_CYCLES = 100;
 
+   reg clk;
+   reg rst;
+   reg [DATA_WIDTH-1:0] bench_
+
 initial begin
    // this module uses synchronous resets 
    // set the clock low and reset high to hold the system in the ready-to-reset state 
@@ -37,10 +41,24 @@ initial begin
    clk = 1;   // transitioning the clock lo to -high with reset high should reset everything 
    #10;
    rst = 0;  // pull reset and clock low 
-   clk =0;   // hold clock low for a while 
-   #10;      // let the clock go after this 
+   clk =0;   // hold clock low for a while
+   bench_dataout = 0x33333;
+   #10;      // let the clock go after this
 end // initial 
 
+   
+argo_3stage STAGETEST (
+    .clk(clk),
+    .rst(rst),		 
+    .ivalid(bench_ovalid),
+    .iready(bench_oready),
+    .ovalid(bench_ivalid),
+    .oready(bench_iready),
+    .datain(bench_dataout),
+    .dataout(bench_datain)
+);
+
+   
 /* clock control for the test bench */   
 always begin 
   #1 clk = !clk ; 

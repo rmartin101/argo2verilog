@@ -17,7 +17,6 @@
 
 /* a simple dual ported RAM */
 /* this should be inferrable by allmost all the tools into a BRAM */
-
 module d_p_ram #(parameter ADDR_WIDTH = 3, DATA_WIDTH = 32, DEPTH = (1<< ADDR_WIDTH))
                 (clk, write_en, write_addr, read_addr, input_data, output_data);
 
