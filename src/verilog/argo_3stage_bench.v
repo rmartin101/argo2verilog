@@ -20,56 +20,136 @@
  * FIFO 2 into variable Z1
 */
 
+/* the dataflow model for this module follow the openCL library avalon interface:
+ *
+ *                 Upstream module    Data
+ * 
+ *           bench_oready bench_ovalid bench_dataout
+ *                 ^            |       |
+ *         --------|------------V-------V-------  
+ *         | oready|         ivalid     data   |
+ *         |       |                    input  |
+ *         |  This module (3 stage pipe)       |
+ *         |                           data    |
+ *         |    iready       ovalid    out     |
+ *         ------- ^------------|-------|------|
+ *                 |            V       V      
+ *          bench_iready bench_ivalid  bench_datain
+ * 
+ *                  Downstream module 
+ * 
+ * The middle module sets oready. If ivalid is high, the module must latch the data. 
+ */
+
 `ifdef NEGRESET
   `define RESET (~(rst))
 `else
   `define RESET (rst)
 `endif 
 
-parameter MAX_CYCLES = 100;
+module argo_3stage_bench();
 
-   reg clk;
-   reg rst;
-   reg [DATA_WIDTH-1:0] bench_
+   parameter MAX_CYCLES = 25;
 
-initial begin
-   // this module uses synchronous resets 
-   // set the clock low and reset high to hold the system in the ready-to-reset state 
-   clk = 0;
-   rst = 1;
-   #10;
-   clk = 1;   // transitioning the clock lo to -high with reset high should reset everything 
-   #10;
-   rst = 0;  // pull reset and clock low 
-   clk =0;   // hold clock low for a while
-   bench_dataout = 0x33333;
-   #10;      // let the clock go after this
-end // initial 
+   reg clk;  // lock 
+   reg rst;   // reset 
+   reg [31:0]  cycle_count;
+   
+   // inputs to the pipeline
+   reg bench_oready;
+   reg bench_ovalid;
+   reg [31:0] bench_dataout;
+
+   // output from the pipeline 
+   wire bench_iready;
+   reg  bench_iready_reg;
+   
+   wire bench_ivalid;
+   wire [31:0] bench_datain;
+   reg  [31:0]  bench_datain_reg;
+    
+   argo_3stage STAGETEST (
+       .clk(clk),
+       .rst(rst),		 
+       .ivalid(bench_ovalid),
+       .iready(bench_iready),
+       .ovalid(bench_ivalid),
+       .oready(bench_oready),
+       .datain(bench_dataout),
+       .dataout(bench_datain)
+   );
+   assign bench_iready = bench_iready_reg;
+   
+   initial begin
+      // this module uses synchronous resets 
+      // set the clock low and reset high to hold the system in the ready-to-reset state
+      bench_ovalid =0;
+      clk = 0;
+      rst = 1;
+      #10;
+      clk = 1;   // transitioning the clock lo to -high with reset high should reset everything 
+      #10;
+      bench_dataout = 32'h0000001;
+      rst = 0;  // pull reset and clock low 
+      clk =0;   // hold clock low for a while
+      #10;      // let the clock go after this
+   end // initial 
 
    
-argo_3stage STAGETEST (
-    .clk(clk),
-    .rst(rst),		 
-    .ivalid(bench_ovalid),
-    .iready(bench_oready),
-    .ovalid(bench_ivalid),
-    .oready(bench_iready),
-    .datain(bench_dataout),
-    .dataout(bench_datain)
-);
+   /* *********** data writer ***********************/
+   always @(posedge clk) begin
+      if (bench_oready == 1) begin
+	 // this case statement is the input driver organized by the specific cycle count 
+	 case (cycle_count)
+	   1 : begin 
+	      bench_dataout <= 'h55;
+	      bench_ovalid <= 1;
+	      $display("Sending %d to pipeline cycle %d",bench_dataout,cycle_count);
+	   end 
+	   2: begin 
+	      bench_dataout <= 'h25;
+	      bench_ovalid <= 1;
+	      $display("Sending %d to pipeline cycle %d",bench_dataout,cycle_count);
+	   end
+	   default: begin 
+	      bench_dataout <= 0;
+	      bench_ovalid <= 0;
+	   end
+	 endcase
+      end else begin // if (oready == 0, the pipe is not ready to accept data )
+	bench_dataout <= 0;
+	bench_ovalid <= 0;	 
+     end // else: !if(bench_oready == 1)
+   end // always @ (posedge clk)
 
+   /* *********** data reader ***********************/
+   // we always accept data    
+   always @(posedge clk) begin
+      bench_iready_reg <= 1;  // act as infinite sink
+      if (bench_ivalid == 1) begin
+	 bench_datain_reg <= bench_datain;
+      end else begin
+	 bench_iready_reg <=1;
+      end
+   end
    
-/* clock control for the test bench */   
-always begin 
-  #1 clk = !clk ; 
-end 
-
    /* *********** cycle counter ***********************/  
-always @(posedge clk) begin
-   if (`RESET) begin
-      cycle_count <= 0;
+   always @(posedge clk) begin
+      if (`RESET) begin
+	 cycle_count <= 0;
+      end
+      else begin
+	 cycle_count <= cycle_count + 1 ;
+	 if (cycle_count > MAX_CYCLES) begin
+	    $finish();
+	 end
+      end
    end
-   else begin
-      cycle_count <= cycle_count + 1 ;
-   end
-end
+
+/* clock control for the test bench */   
+   always begin 
+      #1 clk = !clk ; 
+   end 
+
+
+endmodule // argo_3stage_bench

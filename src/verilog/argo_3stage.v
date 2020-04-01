@@ -30,8 +30,8 @@
  * X1 is the variable written to to pipe1 by stage 1 
  * 
  * Y1 is a simulated Go variable read by stage 2 from pipe1 and written to pipe2
- * Y1 is filtered, If Y1 == 0x19700328, it is changed to 0x20050823 
- * If Y1 == 0x19700101, it is changed to 0x20071224 
+ * Y1 is filtered by control bit 00105. If Y1 == h19700328, it is changed to h20050823 
+ * If Y1 == h19700101, it is changed to h20071224 
  * otherwize, Y1 is pushed through the pipeline as is
  * 
  * Z1 is a simulated Go variable that is read by stage 3 from pipe 2 
@@ -39,7 +39,7 @@
  */
  /* switch for positive vs negative resets */
 
-/* the dataflow model for this module follow the openCL library:
+/* the dataflow model for this module follow the openCL library avalon interface:
  *
  *                 Upstream module    Data
  *                 ^            |     |
@@ -50,30 +50,36 @@
  *            iready|     ovalid |   Data
  *                  |            V    V
  *                  Downstream module 
+ * 
+ * The middle module sets oready. If ivalid is high, the module must latch the data. 
  */
 
 `ifdef NEGRESET
  `define RESET (~(rst))
 `else
  `define RESET (rst)
- `endif
-
+`endif
 
 module argo_3stage(clk,rst,ivalid,iready,ovalid,oready,datain,dataout);
-   parameter PIPE_1_WIDTH = 32;
+   parameter PIPE_1_DATA_WIDTH = 32;
    parameter PIPE_1_ADDR_WIDTH = 4;
-   parameter PIPE_2_WIDTH = 32;
+   parameter PIPE_2_DATA_WIDTH = 32;
    parameter PIPE_2_ADDR_WIDTH = 3;
 
    input clk;  // clock 
-   input rst;   // reset. Can set to positve or negative 
-   input ivalid;  // input valid 
-   input iready;   // input ready 
-   output ovalid;  // output valid 
-   output oready;  // output ready 
-   input [PIPE_1_WIDTH-1:0] datain;    // data input 
-   output [PIPE_2_WIDTH-1:0] dataout);  // data output
+   input rst;   // reset. Can set to positve or negative
 
+   // control to/from the upstream module
+   output oready;  // output ready
+   input  ivalid;  // input valid
+   input [PIPE_1_DATA_WIDTH-1:0] datain;
+
+   // control to/from the downstream module    
+   output iready;   // input ready 				 
+   output ovalid;  // output valid 
+   output [PIPE_2_DATA_WIDTH-1:0] dataout;  // data output
+   reg ovalid_reg;
+   
    /* variables */
    reg [31: 0] X1;  // write into FIFO 1
    reg [31: 0] Y1;  // Read from FIFO 1
@@ -118,22 +124,22 @@ module argo_3stage(clk,rst,ivalid,iready,ovalid,oready,datain,dataout);
    /* control regs for the third control loop */
    
    // Pipe/channel 1 registers    
-   reg [PIPE_1_WIDTH-1:0 ] pipe_1_write_data;
-   wire [PIPE_1_WIDTH-1:0 ] pipe_1_read_data;
+   reg [PIPE_1_DATA_WIDTH-1:0 ] pipe_1_write_data;
+   wire [PIPE_1_DATA_WIDTH-1:0 ] pipe_1_read_data;
    reg pipe_1_rd_en_reg;
    reg pipe_1_wr_en_reg;   
    wire pipe_1_full;
    wire pipe_1_empty;
 
-   reg  [PIPE_2_WIDTH-1:0 ] pipe_2_write_data;
-   wire [PIPE_2_WIDTH-1:0 ] pipe_2_read_data;
+   reg  [PIPE_2_DATA_WIDTH-1:0 ] pipe_2_write_data;
+   wire [PIPE_2_DATA_WIDTH-1:0 ] pipe_2_read_data;
    reg pipe_2_rd_en_reg;
    reg pipe_2_wr_en_reg;   
    wire pipe_2_full;
    wire pipe_2_empty;
 
-/* channels */
-argo_fifo #(.ADDR_WIDTH(PIPE_1_ADDR_WIDTH),.DATA_WIDTH(PIPE_1_WIDTH),.DEPTH(1<<PIPE_1_ADDR_WIDTH),.FIFO_ID(1)) PIPE_1 (
+   /* channels */
+   argo_fifo #(.ADDR_WIDTH(PIPE_1_ADDR_WIDTH),.DATA_WIDTH(PIPE_1_DATA_WIDTH),.DEPTH(1<<PIPE_1_ADDR_WIDTH),.FIFO_ID(1)) PIPE_1 (
     .clk(clk),
     .rst(rst),		 
     .rd_en(pipe_1_rd_en_reg),
@@ -145,7 +151,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_1_ADDR_WIDTH),.DATA_WIDTH(PIPE_1_WIDTH),.DEPTH(1<<P
 );
  
 /* the 2nd channel */
-argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_WIDTH),.DEPTH(1<<PIPE_2_ADDR_WIDTH),.FIFO_ID(5)) PIPE_2 (
+argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH(1<<PIPE_2_ADDR_WIDTH),.FIFO_ID(5)) PIPE_2 (
     .clk(clk),
     .rst(rst),		 
     .rd_en(pipe_2_rd_en_reg),
@@ -156,434 +162,451 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_WIDTH),.DEPTH(1<<P
     .empty(pipe_2_empty)
 );
 
-   
-// ************ Data flow section ********************* */
-always @(posedge clk) begin // Data flow for X1
-   if `RESET begin
-      X1 <=0;
-   end else if (c_bit_00001 == 1) begin
-	 X1 <= X1 + 1;
-	 $display("incrementing X1 val %d at cycle %d",X1,cycle_count);
-   end else begin
-      X1 <= X1 ;      
-   end
-end
-      
+   // if pipe 1 is full, don't allow external input
+   assign oready = ~pipe_1_full;
+   // the output is valid everytime Z1 gets a new assignment 
+   assign ovalid = ovalid_reg;
 
-/**** channel 1 writer data flow section *********/
-always @(posedge clk) begin // control for line c_bit_00001;
-   if `RESET begin
-      pipe_1_write_data <= 0;
-      pipe_1_wr_en_reg <= 0;
-   end 
-   else if (c_bit_00003 == 1) begin
-      pipe_1_write_data <= X1 ;
-      pipe_1_wr_en_reg <= 1 ;
-      $display("storing X1 into  pipe 1 val: %d cycle %d",X1,cycle_count);
-   end else begin 
-      pipe_1_write_data <= 0 ;
-      pipe_1_wr_en_reg <= 0 ;
+   // ************ Data flow section ********************* */
+   always @(posedge clk) begin // Data flow for X1
+      if `RESET begin
+	 X1 <= 0;
+      end else if ((c_bit_00001 == 1) && (ivalid == 1 ) && (pipe_1_full == 0)) begin
+	 X1 <= datain; // load X1 from an external source
+	 $display("loading X1 from datain cycle %d",cycle_count)
+         // X1 <= X1 +1 ;  // this was the self-generating code 
+	 //$display("incrementing X1 val %d at cycle %d",X1,cycle_count);
+      end else begin
+	 X1 <= X1 ;      
+      end
    end
-end // always @ (posedge clk)
+   
+   /**** channel 1 writer data flow section *********/
+   always @(posedge clk) begin  // data flow for pipe_1_write_data 
+      if `RESET begin
+	 pipe_1_write_data <= 0;
+	 pipe_1_wr_en_reg <= 0;
+      end 
+      else if (c_bit_00003 == 1) begin
+	 pipe_1_write_data <= X1 ;
+	 pipe_1_wr_en_reg <= 1 ;
+	 $display("storing X1 into  pipe 1 val: %d cycle %d",X1,cycle_count);
+      end else begin 
+	 pipe_1_write_data <= 0 ;
+	 pipe_1_wr_en_reg <= 0 ;
+      end
+   end // always @ (posedge clk)
    
    
-/**** channel 1 reader data  flow section ****/
-always @(posedge clk) begin // data flow for read enable on FIFO 1
-   if `RESET begin
-      pipe_1_rd_en_reg <= 0 ;      
-   end
-   else if ((c_bit_00103 == 1) && (!(pipe_1_empty )))begin
-      pipe_1_rd_en_reg <= 1 ;
-      $display("enabling read on pipe 1 cycle %d",cycle_count);
+   /**** channel 1 reader data  flow section ****/
+   always @(posedge clk) begin // data flow for read enable on FIFO 1
+      if `RESET begin
+	 pipe_1_rd_en_reg <= 0 ;      
+      end
+      else if ((c_bit_00103 == 1) && (pipe_1_empty == 0) )begin
+	 pipe_1_rd_en_reg <= 1 ;
+	 $display("enabling read on pipe 1 cycle %d",cycle_count);
       end else begin 
 	 pipe_1_rd_en_reg <= 0 ;
+      end
    end
-end
 
-always @(posedge clk) begin // data flow for reads of the filo
-   if `RESET begin
-      Y1 <= 0;
-   end
-   else if (c_bit_00104 == 1) begin
-      Y1 <= pipe_1_read_data;
-      $display("reading value on pipe 1 old-val: %d cycle %d",Y1,cycle_count);
-   end else begin 
-      Y1 <= Y1;
-   end
-end
-
-/**** channel 2 writer data flow section *********/
-
-always @(posedge clk) begin // control for line c_bit_00001;
-   if `RESET begin
-      pipe_1_write_data <= 0;
-      pipe_1_wr_en_reg <= 0;
-   end
-   else if (c_bit_00003 == 1) begin
-      pipe_1_write_data <= X1 ;
-      pipe_1_wr_en_reg <= 1 ;
-      $display("storing X1 into  pipe 1 val: %d cycle %d",X1,cycle_count);
-   end else begin 
-      pipe_1_write_data <= 0 ;
-      pipe_1_wr_en_reg <= 0 ;
-   end
-end
+   // data flow for Y1
+   always @(posedge clk) begin // data flow for reads of the filo
+      if `RESET begin
+	 Y1 <= 0;
+      end
+      else if (c_bit_00104 == 1) begin
+	 Y1 <= pipe_1_read_data;
+	 $display("reading value on pipe 1 old-val: %d cycle %d",Y1,cycle_count);
+      end else if (c_bit_00105 == 1) begin   // this is the filter 
+	 if (Y1 == 'h19700328 ) begin
+	    Y1 <=  'h20050823;
+	 end else if (Y1 == 'h19700101 )  begin
+	    Y1 <= 'h20071224 ;
+	 end else begin
+	    Y1 <= Y1;
+	 end
+      end
+   end // always @ (posedge clk)
    
-/**** channel 2 reader data flow section *********/
-always @(posedge clk) begin // data flow for read enable on FIFO 1
-   if `RESET begin
-      pipe_2_rd_en_reg <= 0 ;
+   /**** channel 2 writer data flow section *********/
+
+   always @(posedge clk) begin // control for line c_bit_00001;
+      if `RESET begin
+	 pipe_1_write_data <= 0;
+	 pipe_1_wr_en_reg <= 0;
+      end
+      else if (c_bit_00003 == 1) begin
+	 pipe_1_write_data <= X1 ;
+	 pipe_1_wr_en_reg <= 1 ;
+	 $display("storing X1 into  pipe 1 val: %d cycle %d",X1,cycle_count);
+      end else begin 
+	 pipe_1_write_data <= 0 ;
+	 pipe_1_wr_en_reg <= 0 ;
+      end
    end
-   else if ((c_bit_00203 == 1) && (!(pipe_1_empty ))) begin
-      pipe_2_rd_en_reg <= 1 ;
-      $display("enabling read on pipe 2 cycle %d",cycle_count);
+   
+   /**** channel 2 reader data flow section *********/
+   always @(posedge clk) begin // data flow for read enable on FIFO 1
+      if `RESET begin
+	 pipe_2_rd_en_reg <= 0 ;
+      end
+      else if ( (c_bit_00203 == 1) && (pipe_1_empty ==0) ) begin
+	 pipe_2_rd_en_reg <= 1 ;
+	 $display("enabling read on pipe 2 cycle %d",cycle_count);
       end else begin 
 	 pipe_2_rd_en_reg <= 0 ;
+      end
    end
-end
 
-always @(posedge clk) begin // data flow for reads of the filo
-   if `RESET begin
-      Z1 <= 0;
+   // is this the data-flow for Z1, which is the output of the 3 stage pipeline
+   // we set the output reg everytime Z1 gets set for one clock cycle.  
+   always @(posedge clk) begin // data flow for reads of the filo
+      if `RESET begin
+	 Z1 <= 0;
+	 ovalid_reg <=0;
+      end
+      else if (c_bit_00204 == 1) begin
+	 Z1 <= pipe_2_read_data;
+	 ovalid_reg <= 1 ;
+	 $display("reading value on pipe 1 old-val: %d cycle %d",Z1,cycle_count);
+      end else begin 
+	 Z1 <= Z1;
+	 ovalid_reg <= 0;
+      end
    end
-   else if (c_bit_00204 == 1) begin
-      Z1 <= pipe_2_read_data;
-      $display("reading value on pipe 1 old-val: %d cycle %d",Z1,cycle_count);
-   end else begin 
-      Z1 <= Z1;
-   end
-end
 
-/******************** I/O  section *********************/
-always @(posedge clk) begin // data flow for reads of the filo
-   if (c_bit_00107== 1)  begin
-      $display("Z1 is: %d at cycle %d ",Z1,cycle_count);
+   /******************** I/O  section *********************/
+   always @(posedge clk) begin // data flow for reads of the filo
+      if (c_bit_00107== 1)  begin
+	 $display("Z1 is: %d at cycle %d ",Z1,cycle_count);
+      end
    end
-end
-always @(posedge clk) begin // data flow for reads of the filo
-   if (c_bit_00205== 1)  begin
-      $display("Z1 is: %d at cycle %d ",Z1,cycle_count) ;
+   always @(posedge clk) begin // data flow for reads of the filo
+      if (c_bit_00205== 1)  begin
+	 $display("Z1 is: %d at cycle %d ",Z1,cycle_count) ;
+      end
    end
-end
    
-// ************ control flow section for PIPE 1 Writer ********************* */
-always @(posedge clk) begin // control for line c_bit_00001;
-   if `RESET begin
-      c_bit_00000_start <= 1;
-      c_bit_00001 <= 0 ;
-   end 
-   else if ((c_bit_00000_start == 1) || (c_bit_00006 == 1))  begin
-      c_bit_00000_start <= 0;
-      c_bit_00001 <= 1 ;
-      $display("at control line 1 cycle count %d ",cycle_count);
-   end 
-   else  begin
-      c_bit_00000_start <= 0;
-      c_bit_00001 <= 0 ;  
-   end
-end // end @ posedge clk
-
-   
-always @(posedge clk) begin // control for line c_bit_00002;
-   if `RESET begin
-      c_bit_00002 <= 0;
-   end
-   else if ( (c_bit_00001 == 1) )begin
-      c_bit_00002 <= 1 ;
-      $display("at control line 2 cycle count %d",cycle_count);
-   end 
-   else if ( (c_bit_00002 == 1 ) && ( pipe_1_full ) ) begin 
-      c_bit_00002 <= 1;
-      $display("waiting for pipe 1 to clear cycle %d",cycle_count);      
-   end else begin
-      c_bit_00002 <= 0;  	
-   end 
-   
-end // end @ posedge clk
-   
-always @(posedge clk) begin // control for line c_bit_00003;
-   if `RESET begin
-      c_bit_00003 <= 0 ;
-   end
-   else if ( (c_bit_00002 == 1) && (!(pipe_1_full))) begin 
-      c_bit_00003 <= 1 ;
-      $display("at control line 3 cycle count %d",cycle_count);
-   end 
-   else  begin 
-      c_bit_00003 <= 0 ;  
-   end
-end // end @ posedge clk
-
-always @(posedge clk) begin // control for line c_bit_00003;
-   if `RESET begin
-      c_bit_00004 <= 0 ;
-   end
-   else if ( (c_bit_00003 == 1)) begin 
-      c_bit_00004 <= 1 ;
-      $display("at control line 4 cycle %d",cycle_count);
-   end 
-   else  begin 
-      c_bit_00004 <= 0 ;  
-   end
-end // end @ posedge clk
-
-always @(posedge clk) begin // control for line c_bit_00005;
-   if `RESET begin
-      c_bit_00005 <= 0 ;
-   end
-   else if ( (c_bit_00004 == 1)) begin 
-      c_bit_00005 <= 1 ;
-      $display("at control line 5 cycle %d",cycle_count);
-   end 
-   else  begin 
-      c_bit_00005 <= 0 ;  
-   end
-end // end @ posedge clk
-
-always @(posedge clk) begin // control for line c_bit_00006;
-   if `RESET begin
-      c_bit_00006 <= 0 ;
-   end
-   else if ( (c_bit_00005 == 1)) begin 
-      c_bit_00006 <= 1 ;
-      $display("at control line 6 cycle %d",cycle_count);
-   end 
-   else  begin 
-      c_bit_00006 <= 0 ;  
-   end
-end // end @ posedge clk
-
-/*  *********** control flow section for PIPE 2 Reader and Writer ********************* */   
-
-always @(posedge clk) begin // control for line c_bit_00101;
-   if `RESET begin
-      c_bit_00101 <= 0 ;
-   end
-   else if ((c_bit_00000_start == 1) || (c_bit_00108 == 1))  begin
-      c_bit_00101 <= 1 ;
-      $display("at control line 101 cycle count %d ",cycle_count);
-   end 
-   else  begin
-      c_bit_00101 <= 0 ;  
-   end
-end // end @ posedge clk
+   // ************ control flow section for PIPE 1 Writer ********************* */
+   always @(posedge clk) begin // control for line c_bit_00001;
+      if `RESET begin
+	 c_bit_00000_start <= 1;
+	 c_bit_00001 <= 0 ;
+      end 
+      else if ((c_bit_00000_start == 1) || (c_bit_00006 == 1))  begin
+	 c_bit_00000_start <= 0;
+	 c_bit_00001 <= 1 ;
+	 $display("at control line 1 cycle count %d ",cycle_count);
+      end 
+      else  begin
+	 c_bit_00000_start <= 0;
+	 c_bit_00001 <= 0 ;  
+      end
+   end // end @ posedge clk
 
    
-always @(posedge clk) begin // control for line c_bit_0102;
-   if `RESET begin
-      c_bit_00102 <= 0 ;
-   end
-   else if ( (c_bit_00101 == 1) )begin
-      c_bit_00102 <= 1 ;
-      $display("at control line 102 cycle count %d",cycle_count);
-   end 
-   else if ( (c_bit_00102 == 1 ) && ( pipe_1_empty ) ) begin 
-      c_bit_00102 <= 1;
-      $display("waiting for pipe 1 to have data cycle %d",cycle_count);      
-   end else begin
-      c_bit_00102 <= 0;  	
-   end 
+   always @(posedge clk) begin // control for line c_bit_00002;
+      if `RESET begin
+	 c_bit_00002 <= 0;
+      end
+      else if ( (c_bit_00001 == 1) && (pipe_1_full == 0)) begin
+	 c_bit_00002 <= 1 ;
+	 $display("at control line 2 cycle count %d",cycle_count);
+      end 
+      else if ( (c_bit_00002 == 1 ) && ( pipe_1_full ) ) begin 
+	 c_bit_00002 <= 1;
+	 $display("waiting for pipe 1 to clear cycle %d",cycle_count);      
+      end else begin
+	 c_bit_00002 <= 0;  	
+      end 
+   end // end @ posedge clk
    
-end // end @ posedge clk
+   always @(posedge clk) begin // control for line c_bit_00003;
+      if `RESET begin
+	 c_bit_00003 <= 0 ;
+      end
+      else if ( (c_bit_00002 == 1) && (!(pipe_1_full))) begin 
+	 c_bit_00003 <= 1 ;
+	 $display("at control line 3 cycle count %d",cycle_count);
+      end 
+      else  begin 
+	 c_bit_00003 <= 0 ;  
+      end
+   end // end @ posedge clk
+
+   always @(posedge clk) begin // control for line c_bit_00003;
+      if `RESET begin
+	 c_bit_00004 <= 0 ;
+      end
+      else if ( (c_bit_00003 == 1)) begin 
+	 c_bit_00004 <= 1 ;
+	 $display("at control line 4 cycle %d",cycle_count);
+      end 
+      else  begin 
+	 c_bit_00004 <= 0 ;  
+      end
+   end // end @ posedge clk
+
+   always @(posedge clk) begin // control for line c_bit_00005;
+      if `RESET begin
+	 c_bit_00005 <= 0 ;
+      end
+      else if ( (c_bit_00004 == 1)) begin 
+	 c_bit_00005 <= 1 ;
+	 $display("at control line 5 cycle %d",cycle_count);
+      end 
+      else  begin 
+	 c_bit_00005 <= 0 ;  
+      end
+   end // end @ posedge clk
+
+   always @(posedge clk) begin // control for line c_bit_00006;
+      if `RESET begin
+	 c_bit_00006 <= 0 ;
+      end
+      else if ( (c_bit_00005 == 1)) begin 
+	 c_bit_00006 <= 1 ;
+	 $display("at control line 6 cycle %d",cycle_count);
+      end 
+      else  begin 
+	 c_bit_00006 <= 0 ;  
+      end
+   end // end @ posedge clk
+
+   /*  *********** control flow section for PIPE 2 Reader and Writer ********************* */   
+
+   always @(posedge clk) begin // control for line c_bit_00101;
+      if `RESET begin
+	 c_bit_00101 <= 0 ;
+      end
+      else if ((c_bit_00000_start == 1) || (c_bit_00108 == 1))  begin
+	 c_bit_00101 <= 1 ;
+	 $display("at control line 101 cycle count %d ",cycle_count);
+      end 
+      else  begin
+	 c_bit_00101 <= 0 ;  
+      end
+   end // end @ posedge clk
    
-always @(posedge clk) begin // control for line c_bit_00103;
-   if `RESET begin
-      c_bit_00103 <= 0 ;
-   end
-   else if ( (c_bit_00102 == 1) && (!(pipe_1_empty))) begin 
-      c_bit_00103 <= 1 ;
-      $display("at control line 103 cycle count %d",cycle_count); 
-   end 
-   else  begin 
-      c_bit_00103 <= 0 ;  
-   end
-end // end @ posedge clk
-
-always @(posedge clk) begin // control for line c_bit_00104;
-   if `RESET begin
-      c_bit_00104 <= 0 ;
-   end   
-   else if ( (c_bit_00103 == 1)) begin 
-      c_bit_00104 <= 1 ;
-      $display("at control line 104 cycle %d",cycle_count);
-   end 
-   else  begin 
-      c_bit_00104 <= 0 ;  
-   end
-end // end @ posedge clk
-
-always @(posedge clk) begin // control for line c_bit_00105;
-   if `RESET begin
-      c_bit_00105 <= 0 ;
-   end   
-   else if ( (c_bit_00104 == 1)) begin 
-      c_bit_00105 <= 1 ;
-      `ifdef DEBUG10  $display("at control line 105 cycle %d",cycle_count); `endif
-   end 
-   else  begin 
-      c_bit_00105 <= 0 ;  
-   end
-end // end @ posedge clk
-
-always @(posedge clk) begin // control for line c_bit_00106;
-   if `RESET begin
-      c_bit_00106 <= 0 ;
-   end   
-   else if ( (c_bit_00105 == 1)) begin 
-      c_bit_00106 <= 1 ;
-      $display("at control line 106 cycle %d",cycle_count);
-   end 
-   else  begin 
-      c_bit_00106 <= 0 ;  
-   end
-end // end @ posedge clk
-
-always @(posedge clk) begin // control for line c_bit_00107;
-   if `RESET begin
-      c_bit_00107 <= 0 ;
-   end   
-   else if ( (c_bit_00106 == 1)) begin 
-      c_bit_00107 <= 1 ;
-      $display("at control line 107 cycle %d",cycle_count);
-   end 
-   else  begin 
-      c_bit_00107 <= 0 ;  
-   end
-end // end @ posedge clk
    
-always @(posedge clk) begin // control for line c_bit_00108;
-   if `RESET begin
-      c_bit_00108 <= 0 ;
-   end   
-   else if ( (c_bit_00107 == 1)) begin 
-      c_bit_00108 <= 1 ;
-      $display("at control line 108 cycle %d",cycle_count);
-   end 
-   else  begin 
-      c_bit_00108 <= 0 ;  
-   end
-end // end @ posedge clk//    
-
-/*  *********** control flow section for PIPE 2 Reader ********************* */   
-
-always @(posedge clk) begin // control for line c_bit_00201;
-   if `RESET begin
-      c_bit_00201 <= 0 ;
-   end   
-   else if ((c_bit_00000_start == 1) || (c_bit_00208 == 1))  begin
-      c_bit_00201 <= 1 ;
-      $display("at control line 201 cycle count %d ",cycle_count);
-   end 
-   else  begin
-      c_bit_00201 <= 0 ;  
-   end
-end // end @ posedge clk
-
+   always @(posedge clk) begin // control for line c_bit_0102;
+      if `RESET begin
+	 c_bit_00102 <= 0 ;
+      end
+      else if ( (c_bit_00101 == 1) )begin
+	 c_bit_00102 <= 1 ;
+	 $display("at control line 102 cycle count %d",cycle_count);
+      end 
+      else if ( (c_bit_00102 == 1 ) && ( pipe_1_empty ) ) begin 
+	 c_bit_00102 <= 1;
+	 $display("waiting for pipe 1 to have data cycle %d",cycle_count);      
+      end else begin
+	 c_bit_00102 <= 0;  	
+      end 
+      
+   end // end @ posedge clk
    
-always @(posedge clk) begin // control for line c_bit_0102;
-   if `RESET begin
-      c_bit_00202 <= 0 ;
-   end   
-   else if ( (c_bit_00201 == 1) )begin
-      c_bit_00202 <= 1 ;
-      $display("at control line 202 cycle count %d",cycle_count);
-   end 
-   else if ( (c_bit_00202 == 1 ) && ( pipe_1_empty ) ) begin 
-      c_bit_00202 <= 1;
-      $display("waiting for pipe 1 to have data cycle %d",cycle_count);      
-   end else begin
-      c_bit_00202 <= 0;  	
-   end 
+   always @(posedge clk) begin // control for line c_bit_00103;
+      if `RESET begin
+	 c_bit_00103 <= 0 ;
+      end
+      else if ( (c_bit_00102 == 1) && (!(pipe_1_empty))) begin 
+	 c_bit_00103 <= 1 ;
+	 $display("at control line 103 cycle count %d",cycle_count); 
+      end 
+      else  begin 
+	 c_bit_00103 <= 0 ;  
+      end
+   end // end @ posedge clk
    
-end // end @ posedge clk
+   always @(posedge clk) begin // control for line c_bit_00104;
+      if `RESET begin
+	 c_bit_00104 <= 0 ;
+      end   
+      else if ( (c_bit_00103 == 1)) begin 
+	 c_bit_00104 <= 1 ;
+	 $display("at control line 104 cycle %d",cycle_count);
+      end 
+      else  begin 
+	 c_bit_00104 <= 0 ;  
+      end
+   end // end @ posedge clk
    
-always @(posedge clk) begin // control for line c_bit_00203;
-   if `RESET begin
-      c_bit_00203 <= 0 ;
-   end   
-   else if ( (c_bit_00202 == 1) && (!(pipe_1_empty))) begin 
-      c_bit_00203 <= 1 ;
-      $display("at control line 203 cycle count %d",cycle_count); 
-   end 
-   else  begin 
-      c_bit_00203 <= 0 ;  
-   end
-end // end @ posedge clk
-
-always @(posedge clk) begin // control for line c_bit_00204;
-   if `RESET begin
-      c_bit_00204 <= 0 ;
-   end   
-   else if ( (c_bit_00203 == 1)) begin 
-      c_bit_00204 <= 1 ;
-      $display("at control line 204 cycle %d",cycle_count);
-   end 
-   else  begin 
-      c_bit_00204 <= 0 ;  
-   end
-end // end @ posedge clk
-
-always @(posedge clk) begin // control for line c_bit_00205;
-   if `RESET begin
-      c_bit_00205 <= 0 ;
-   end   
-   else if ( (c_bit_00204 == 1)) begin 
-      c_bit_00205 <= 1 ;
-      $display("at control line 205 cycle %d Y1 value is: ",cycle_count,Y1);
-   end 
-   else  begin 
-      c_bit_00205 <= 0 ;  
-   end
-end // end @ posedge clk
-
-always @(posedge clk) begin // control for line c_bit_00206;
-   if `RESET begin
-      c_bit_00206 <= 0 ;
-   end   
-   else if ( (c_bit_00205 == 1)) begin 
-      c_bit_00206 <= 1 ;
-      $display("at control line 206 cycle %d Y1 is %d",cycle_count,Y1);
-   end 
-   else  begin 
-      c_bit_00206 <= 0 ;  
-   end
-end // end @ posedge clk
-
-always @(posedge clk) begin // control for line c_bit_00207;
-   if `RESET begin
-      c_bit_00207 <= 0 ;
-   end   
-   else if ( (c_bit_00206 == 1)) begin 
-      c_bit_00207 <= 1 ;
-      $display("at control line 207 cycle %d",cycle_count);
-   end 
-   else  begin 
-      c_bit_00207 <= 0 ;  
-   end
-end // end @ posedge clk
+   always @(posedge clk) begin // control for line c_bit_00105;
+      if `RESET begin
+	 c_bit_00105 <= 0 ;
+      end   
+      else if ( (c_bit_00104 == 1)) begin 
+	 c_bit_00105 <= 1 ;
+`ifdef DEBUG10  $display("at control line 105 cycle %d",cycle_count); `endif
+      end 
+      else  begin 
+	 c_bit_00105 <= 0 ;  
+      end
+   end // end @ posedge clk
    
-always @(posedge clk) begin // control for line c_bit_00208;
-   if `RESET begin
-      c_bit_00208 <= 0 ;
-   end   
-   else if ( (c_bit_00207 == 1)) begin 
-      c_bit_00208 <= 1 ;
-      $display("at control line 208 cycle %d",cycle_count);
-   end 
-   else  begin 
-      c_bit_00208 <= 0 ;  
+   always @(posedge clk) begin // control for line c_bit_00106;
+      if `RESET begin
+	 c_bit_00106 <= 0 ;
+      end   
+      else if ( (c_bit_00105 == 1)) begin 
+	 c_bit_00106 <= 1 ;
+	 $display("at control line 106 cycle %d",cycle_count);
+      end 
+      else  begin 
+	 c_bit_00106 <= 0 ;  
+      end
+   end // end @ posedge clk
+   
+   always @(posedge clk) begin // control for line c_bit_00107;
+      if `RESET begin
+	 c_bit_00107 <= 0 ;
+      end   
+      else if ( (c_bit_00106 == 1)) begin 
+	 c_bit_00107 <= 1 ;
+	 $display("at control line 107 cycle %d",cycle_count);
+      end 
+      else  begin 
+	 c_bit_00107 <= 0 ;  
+      end
+   end // end @ posedge clk
+   
+   always @(posedge clk) begin // control for line c_bit_00108;
+      if `RESET begin
+	 c_bit_00108 <= 0 ;
+      end   
+      else if ( (c_bit_00107 == 1)) begin 
+	 c_bit_00108 <= 1 ;
+	 $display("at control line 108 cycle %d",cycle_count);
+      end 
+      else  begin 
+	 c_bit_00108 <= 0 ;  
+      end
+   end // end @ posedge clk//    
+   
+   /*  *********** control flow section for PIPE 2 Reader ********************* */   
+   
+   always @(posedge clk) begin // control for line c_bit_00201;
+      if `RESET begin
+	 c_bit_00201 <= 0 ;
+      end   
+      else if ((c_bit_00000_start == 1) || (c_bit_00208 == 1))  begin
+	 c_bit_00201 <= 1 ;
+	 $display("at control line 201 cycle count %d ",cycle_count);
+      end 
+      else  begin
+	 c_bit_00201 <= 0 ;  
+      end
+   end // end @ posedge clk
+   
+   always @(posedge clk) begin // control for line c_bit_0102;
+      if `RESET begin
+	 c_bit_00202 <= 0 ;
+      end   
+      else if ( (c_bit_00201 == 1) )begin
+	 c_bit_00202 <= 1 ;
+	 $display("at control line 202 cycle count %d",cycle_count);
+      end 
+      else if ( (c_bit_00202 == 1 ) && ( pipe_1_empty ) ) begin 
+	 c_bit_00202 <= 1;
+	 $display("waiting for pipe 1 to have data cycle %d",cycle_count);      
+      end else begin
+	 c_bit_00202 <= 0;  	
+      end 
+      
+   end // end @ posedge clk
+   
+   // this is the control clause that allows reading from the pipe 2 into Z1
+   // We can't pass this control bit unless both the downstream module is ready and pipe 2 has data
+   always @(posedge clk) begin // control for line c_bit_00203;
+      if `RESET begin
+	 c_bit_00203 <= 0 ;
+      end   
+      else if ( (c_bit_00202 == 1) && (!(pipe_1_empty)) && (iready) ) begin 
+	 c_bit_00203 <= 1 ;
+	 $display("at control line 203 cycle count %d",cycle_count); 
+      end 
+      else  begin 
+	 c_bit_00203 <= 0 ;  
+      end
+   end // end @ posedge clk
+   
+   always @(posedge clk) begin // control for line c_bit_00204;
+      if `RESET begin
+	 c_bit_00204 <= 0 ;
+      end   
+      else if ( (c_bit_00203 == 1)) begin 
+	 c_bit_00204 <= 1 ;
+	 $display("at control line 204 cycle %d",cycle_count);
+      end 
+      else  begin 
+	 c_bit_00204 <= 0 ;  
+      end
+   end // end @ posedge clk
+   
+   always @(posedge clk) begin // control for line c_bit_00205;
+      if `RESET begin
+	 c_bit_00205 <= 0 ;
+      end   
+      else if ( (c_bit_00204 == 1)) begin 
+	 c_bit_00205 <= 1 ;
+	 $display("at control line 205 cycle %d Y1 value is: ",cycle_count,Y1);
+      end 
+      else  begin 
+	 c_bit_00205 <= 0 ;  
+      end
+   end // end @ posedge clk
+   
+   always @(posedge clk) begin // control for line c_bit_00206;
+      if `RESET begin
+	 c_bit_00206 <= 0 ;
+      end   
+      else if ( (c_bit_00205 == 1)) begin 
+	 c_bit_00206 <= 1 ;
+	 $display("at control line 206 cycle %d Y1 is %d",cycle_count,Y1);
+      end 
+      else  begin 
+	 c_bit_00206 <= 0 ;  
+      end
+   end // end @ posedge clk
+   
+   always @(posedge clk) begin // control for line c_bit_00207;
+      if `RESET begin
+	 c_bit_00207 <= 0 ;
+      end   
+      else if ( (c_bit_00206 == 1)) begin 
+	 c_bit_00207 <= 1 ;
+	 $display("at control line 207 cycle %d",cycle_count);
+      end 
+      else  begin 
+	 c_bit_00207 <= 0 ;  
+      end
+   end // end @ posedge clk
+   
+   always @(posedge clk) begin // control for line c_bit_00208;
+      if `RESET begin
+	 c_bit_00208 <= 0 ;
+      end   
+      else if ( (c_bit_00207 == 1)) begin 
+	 c_bit_00208 <= 1 ;
+	 $display("at control line 208 cycle %d",cycle_count);
+      end 
+      else  begin 
+	 c_bit_00208 <= 0 ;  
+      end
+   end // end @ posedge clk//    
+   
+   /* *********** cycle counter ***********************/  
+   always @(posedge clk) begin
+      if `RESET begin
+	 cycle_count <= 0;
+      end   
+      else begin
+	 cycle_count <= cycle_count + 1 ;
+      end
    end
-end // end @ posedge clk//    
-
-/* *********** cycle counter ***********************/  
-always @(posedge clk) begin
-   if `RESET begin
-      cycle_count <= 0;
-   end   
-   else begin
-      cycle_count <= cycle_count + 1 ;
-   end
-end
    
 endmodule // argo_3stage
 
