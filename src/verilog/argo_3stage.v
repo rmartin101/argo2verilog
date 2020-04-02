@@ -151,7 +151,7 @@ module argo_3stage(clk,rst,ivalid,iready,ovalid,oready,datain,dataout);
 );
  
 /* the 2nd channel */
-argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH(1<<PIPE_2_ADDR_WIDTH),.FIFO_ID(5)) PIPE_2 (
+argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH(1<<PIPE_2_ADDR_WIDTH),.FIFO_ID(2)) PIPE_2 (
     .clk(clk),
     .rst(rst),		 
     .rd_en(pipe_2_rd_en_reg),
@@ -167,15 +167,20 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
    // the output is valid everytime Z1 gets a new assignment 
    assign ovalid = ovalid_reg;
 
+   always @(posedge clk) begin // reset test 
+      if `RESET begin 
+	 $display("%5d,%s,%3d, got a reset",cycle_count,`__FILE__,`__LINE__);
+      end 
+   end
    // ************ Data flow section ********************* */
    always @(posedge clk) begin // Data flow for X1
       if `RESET begin
 	 X1 <= 0;
       end else if ((c_bit_00001 == 1) && (ivalid == 1 ) && (pipe_1_full == 0)) begin
 	 X1 <= datain; // load X1 from an external source
-	 $display("loading X1 from datain cycle %d",cycle_count)
+	 $display("%5d,%s,%3d, loading X1 from datain",cycle_count,`__FILE__,`__LINE__);
          // X1 <= X1 +1 ;  // this was the self-generating code 
-	 //$display("incrementing X1 val %d at cycle %d",X1,cycle_count);
+	 //$display("%5d,%s,%3d,incrementing X1 val %d",cycle_count,`__FILE__,`__LINE__,X1);
       end else begin
 	 X1 <= X1 ;      
       end
@@ -190,7 +195,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else if (c_bit_00003 == 1) begin
 	 pipe_1_write_data <= X1 ;
 	 pipe_1_wr_en_reg <= 1 ;
-	 $display("storing X1 into  pipe 1 val: %d cycle %d",X1,cycle_count);
+	 $display("%5d,%s,%3d,storing X1 into  pipe 1 val: %d",cycle_count,`__FILE__,`__LINE__,X1);
       end else begin 
 	 pipe_1_write_data <= 0 ;
 	 pipe_1_wr_en_reg <= 0 ;
@@ -205,7 +210,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end
       else if ((c_bit_00103 == 1) && (pipe_1_empty == 0) )begin
 	 pipe_1_rd_en_reg <= 1 ;
-	 $display("enabling read on pipe 1 cycle %d",cycle_count);
+	 $display("%5d,%s,%3d,enabling read on pipe 1 cycle",cycle_count,`__FILE__,`__LINE__);
       end else begin 
 	 pipe_1_rd_en_reg <= 0 ;
       end
@@ -218,11 +223,13 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end
       else if (c_bit_00104 == 1) begin
 	 Y1 <= pipe_1_read_data;
-	 $display("reading value on pipe 1 old-val: %d cycle %d",Y1,cycle_count);
+	 $display("%5d,%s,%3d,reading value on pipe 1 val: %d",cycle_count,`__FILE__,`__LINE__,pipe_1_read_data);
       end else if (c_bit_00105 == 1) begin   // this is the filter 
 	 if (Y1 == 'h19700328 ) begin
+	    $display("%5d,%s,%3d, filter saw value h19700328",cycle_count,`__FILE__,`__LINE__);
 	    Y1 <=  'h20050823;
 	 end else if (Y1 == 'h19700101 )  begin
+	    $display("%5d,%s,%3d, filter saw value h19700101",cycle_count,`__FILE__,`__LINE__);
 	    Y1 <= 'h20071224 ;
 	 end else begin
 	    Y1 <= Y1;
@@ -232,7 +239,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
    
    /**** channel 2 writer data flow section *********/
 
-   always @(posedge clk) begin // control for line c_bit_00001;
+   always @(posedge clk) begin 
       if `RESET begin
 	 pipe_1_write_data <= 0;
 	 pipe_1_wr_en_reg <= 0;
@@ -240,7 +247,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else if (c_bit_00003 == 1) begin
 	 pipe_1_write_data <= X1 ;
 	 pipe_1_wr_en_reg <= 1 ;
-	 $display("storing X1 into  pipe 1 val: %d cycle %d",X1,cycle_count);
+	 $display("%5d,%s,%4d,storing X1 into  pipe 1 val: %d",cycle_count,`__FILE__,`__LINE__,X1);
       end else begin 
 	 pipe_1_write_data <= 0 ;
 	 pipe_1_wr_en_reg <= 0 ;
@@ -254,7 +261,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end
       else if ( (c_bit_00203 == 1) && (pipe_1_empty ==0) ) begin
 	 pipe_2_rd_en_reg <= 1 ;
-	 $display("enabling read on pipe 2 cycle %d",cycle_count);
+	 $display("%5d,%s,%4d,enabling read on pipe 2 cycle %d",cycle_count,`__FILE__,`__LINE__,X1);
       end else begin 
 	 pipe_2_rd_en_reg <= 0 ;
       end
@@ -270,7 +277,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else if (c_bit_00204 == 1) begin
 	 Z1 <= pipe_2_read_data;
 	 ovalid_reg <= 1 ;
-	 $display("reading value on pipe 1 old-val: %d cycle %d",Z1,cycle_count);
+	 $display("%5d,%s,%4d,reading value on pipe 1: %d",cycle_count,`__FILE__,`__LINE__,pipe_2_read_data);
       end else begin 
 	 Z1 <= Z1;
 	 ovalid_reg <= 0;
@@ -280,12 +287,12 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
    /******************** I/O  section *********************/
    always @(posedge clk) begin // data flow for reads of the filo
       if (c_bit_00107== 1)  begin
-	 $display("Z1 is: %d at cycle %d ",Z1,cycle_count);
+	 $display("%5d,%s,%4d, control line 00107 Z1 is: %d",cycle_count,`__FILE__,`__LINE__,Z1);
       end
    end
    always @(posedge clk) begin // data flow for reads of the filo
       if (c_bit_00205== 1)  begin
-	 $display("Z1 is: %d at cycle %d ",Z1,cycle_count) ;
+	 $display("%5d,%s,%4d, control line 00205 Z1 is: %d",cycle_count,`__FILE__,`__LINE__,Z1) ;
       end
    end
    
@@ -298,7 +305,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else if ((c_bit_00000_start == 1) || (c_bit_00006 == 1))  begin
 	 c_bit_00000_start <= 0;
 	 c_bit_00001 <= 1 ;
-	 $display("at control line 1 cycle count %d ",cycle_count);
+	 $display("%5d,%s,%4d, at control line 1",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin
 	 c_bit_00000_start <= 0;
@@ -313,11 +320,11 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end
       else if ( (c_bit_00001 == 1) && (pipe_1_full == 0)) begin
 	 c_bit_00002 <= 1 ;
-	 $display("at control line 2 cycle count %d",cycle_count);
+	 $display("%5d,%s,%4d,at control line 2 ",cycle_count,`__FILE__,`__LINE__);
       end 
       else if ( (c_bit_00002 == 1 ) && ( pipe_1_full ) ) begin 
 	 c_bit_00002 <= 1;
-	 $display("waiting for pipe 1 to clear cycle %d",cycle_count);      
+	 $display("%5d,%s,%4d,waiting for pipe 1 to clear",cycle_count,`__FILE__,`__LINE__);      
       end else begin
 	 c_bit_00002 <= 0;  	
       end 
@@ -329,7 +336,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end
       else if ( (c_bit_00002 == 1) && (!(pipe_1_full))) begin 
 	 c_bit_00003 <= 1 ;
-	 $display("at control line 3 cycle count %d",cycle_count);
+	 $display("%5d,%s,%4d,at control line 3",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin 
 	 c_bit_00003 <= 0 ;  
@@ -342,7 +349,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end
       else if ( (c_bit_00003 == 1)) begin 
 	 c_bit_00004 <= 1 ;
-	 $display("at control line 4 cycle %d",cycle_count);
+	 $display("%5d,%s,%4d,at at control line 4",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin 
 	 c_bit_00004 <= 0 ;  
@@ -355,7 +362,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end
       else if ( (c_bit_00004 == 1)) begin 
 	 c_bit_00005 <= 1 ;
-	 $display("at control line 5 cycle %d",cycle_count);
+	 $display("%5d,%s,%4d,at at control line 5",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin 
 	 c_bit_00005 <= 0 ;  
@@ -368,7 +375,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end
       else if ( (c_bit_00005 == 1)) begin 
 	 c_bit_00006 <= 1 ;
-	 $display("at control line 6 cycle %d",cycle_count);
+	 $display("%5d,%s,%4d,at at control line 6",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin 
 	 c_bit_00006 <= 0 ;  
@@ -383,7 +390,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end
       else if ((c_bit_00000_start == 1) || (c_bit_00108 == 1))  begin
 	 c_bit_00101 <= 1 ;
-	 $display("at control line 101 cycle count %d ",cycle_count);
+	 $display("%5d,%s,%4d,at control line 101",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin
 	 c_bit_00101 <= 0 ;  
@@ -397,11 +404,11 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end
       else if ( (c_bit_00101 == 1) )begin
 	 c_bit_00102 <= 1 ;
-	 $display("at control line 102 cycle count %d",cycle_count);
+	 $display("%5d,%s,%4d,at control line 102",cycle_count,`__FILE__,`__LINE__);
       end 
       else if ( (c_bit_00102 == 1 ) && ( pipe_1_empty ) ) begin 
 	 c_bit_00102 <= 1;
-	 $display("waiting for pipe 1 to have data cycle %d",cycle_count);      
+	 $display("%5d,%s,%4d,waiting for pipe 1 to have data",cycle_count,`__FILE__,`__LINE__);      
       end else begin
 	 c_bit_00102 <= 0;  	
       end 
@@ -414,7 +421,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end
       else if ( (c_bit_00102 == 1) && (!(pipe_1_empty))) begin 
 	 c_bit_00103 <= 1 ;
-	 $display("at control line 103 cycle count %d",cycle_count); 
+	 $display("%5d,%s,%4d,at control line 103",cycle_count,`__FILE__,`__LINE__); 
       end 
       else  begin 
 	 c_bit_00103 <= 0 ;  
@@ -427,7 +434,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end   
       else if ( (c_bit_00103 == 1)) begin 
 	 c_bit_00104 <= 1 ;
-	 $display("at control line 104 cycle %d",cycle_count);
+	 $display("%5d,%s,%4d,at control line 104",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin 
 	 c_bit_00104 <= 0 ;  
@@ -440,7 +447,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end   
       else if ( (c_bit_00104 == 1)) begin 
 	 c_bit_00105 <= 1 ;
-`ifdef DEBUG10  $display("at control line 105 cycle %d",cycle_count); `endif
+	 $display("%5d,%s,%4d,at control line 105 ",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin 
 	 c_bit_00105 <= 0 ;  
@@ -453,7 +460,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end   
       else if ( (c_bit_00105 == 1)) begin 
 	 c_bit_00106 <= 1 ;
-	 $display("at control line 106 cycle %d",cycle_count);
+	 $display("%5d,%s,%4d,at control line 106 ",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin 
 	 c_bit_00106 <= 0 ;  
@@ -466,7 +473,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end   
       else if ( (c_bit_00106 == 1)) begin 
 	 c_bit_00107 <= 1 ;
-	 $display("at control line 107 cycle %d",cycle_count);
+	 $display("%5d,%s,%4d,at control line 107 ",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin 
 	 c_bit_00107 <= 0 ;  
@@ -479,7 +486,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end   
       else if ( (c_bit_00107 == 1)) begin 
 	 c_bit_00108 <= 1 ;
-	 $display("at control line 108 cycle %d",cycle_count);
+	 $display("%5d,%s,%4d,at control line 108 ",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin 
 	 c_bit_00108 <= 0 ;  
@@ -494,7 +501,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end   
       else if ((c_bit_00000_start == 1) || (c_bit_00208 == 1))  begin
 	 c_bit_00201 <= 1 ;
-	 $display("at control line 201 cycle count %d ",cycle_count);
+	 $display("%5d,%s,%4d,at control line 201 ",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin
 	 c_bit_00201 <= 0 ;  
@@ -507,11 +514,11 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end   
       else if ( (c_bit_00201 == 1) )begin
 	 c_bit_00202 <= 1 ;
-	 $display("at control line 202 cycle count %d",cycle_count);
+	 $display("%5d,%s,%4d,at control line 202 ",cycle_count,`__FILE__,`__LINE__);
       end 
       else if ( (c_bit_00202 == 1 ) && ( pipe_1_empty ) ) begin 
 	 c_bit_00202 <= 1;
-	 $display("waiting for pipe 1 to have data cycle %d",cycle_count);      
+	 $display("%5d,%s,%4d,waiting for pipe 1 to have data",cycle_count,`__FILE__,`__LINE__);      
       end else begin
 	 c_bit_00202 <= 0;  	
       end 
@@ -526,7 +533,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end   
       else if ( (c_bit_00202 == 1) && (!(pipe_1_empty)) && (iready) ) begin 
 	 c_bit_00203 <= 1 ;
-	 $display("at control line 203 cycle count %d",cycle_count); 
+	 $display("%5d,%s,%4d,at control line 203",cycle_count,`__FILE__,`__LINE__); 
       end 
       else  begin 
 	 c_bit_00203 <= 0 ;  
@@ -539,7 +546,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end   
       else if ( (c_bit_00203 == 1)) begin 
 	 c_bit_00204 <= 1 ;
-	 $display("at control line 204 cycle %d",cycle_count);
+	 $display("%5d,%s,%4d,at control line 204",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin 
 	 c_bit_00204 <= 0 ;  
@@ -552,7 +559,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end   
       else if ( (c_bit_00204 == 1)) begin 
 	 c_bit_00205 <= 1 ;
-	 $display("at control line 205 cycle %d Y1 value is: ",cycle_count,Y1);
+	 $display("%5d,%s,%4d,at control line 205 value is: %d",cycle_count,`__FILE__,`__LINE__,Y1);
       end 
       else  begin 
 	 c_bit_00205 <= 0 ;  
@@ -565,7 +572,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end   
       else if ( (c_bit_00205 == 1)) begin 
 	 c_bit_00206 <= 1 ;
-	 $display("at control line 206 cycle %d Y1 is %d",cycle_count,Y1);
+	 $display("%5d,%s,%4d,at control line 206 Y1 is %d",cycle_count,`__FILE__,`__LINE__,Y1);
       end 
       else  begin 
 	 c_bit_00206 <= 0 ;  
@@ -578,7 +585,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end   
       else if ( (c_bit_00206 == 1)) begin 
 	 c_bit_00207 <= 1 ;
-	 $display("at control line 207 cycle %d",cycle_count);
+	 $display("%5d,%s,%4d,at control line 207 ",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin 
 	 c_bit_00207 <= 0 ;  
@@ -591,7 +598,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end   
       else if ( (c_bit_00207 == 1)) begin 
 	 c_bit_00208 <= 1 ;
-	 $display("at control line 208 cycle %d",cycle_count);
+	 $display("%5d,%s,%4d,at control line 208",cycle_count,`__FILE__,`__LINE__);
       end 
       else  begin 
 	 c_bit_00208 <= 0 ;  
@@ -609,4 +616,3 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
    end
    
 endmodule // argo_3stage
-

@@ -49,7 +49,7 @@
 
 module argo_3stage_bench();
 
-   parameter MAX_CYCLES = 25;
+   parameter MAX_CYCLES = 10;
 
    reg clk;  // lock 
    reg rst;   // reset 
@@ -84,15 +84,15 @@ module argo_3stage_bench();
       // this module uses synchronous resets 
       // set the clock low and reset high to hold the system in the ready-to-reset state
       bench_ovalid =0;
+      bench_dataout = 'h55;
+      clk = 0;  // force both reset and clock low 
+      rst = 0;
+      #1;
+      rst = 1;  // pull reset and clock high, which generates a posedge clock and reset 
+      clk = 1; 
+      #1;
+      rst = 0;  // pull reset and clock low, then let clock run
       clk = 0;
-      rst = 1;
-      #10;
-      clk = 1;   // transitioning the clock lo to -high with reset high should reset everything 
-      #10;
-      bench_dataout = 32'h0000001;
-      rst = 0;  // pull reset and clock low 
-      clk =0;   // hold clock low for a while
-      #10;      // let the clock go after this
    end // initial 
 
    
@@ -102,14 +102,14 @@ module argo_3stage_bench();
 	 // this case statement is the input driver organized by the specific cycle count 
 	 case (cycle_count)
 	   1 : begin 
-	      bench_dataout <= 'h55;
-	      bench_ovalid <= 1;
-	      $display("Sending %d to pipeline cycle %d",bench_dataout,cycle_count);
+	      bench_dataout = 'h25;
+	      bench_ovalid = 1;
+	      $display("%5d,%s,%4d,Sending %d to pipeline",cycle_count,`__FILE__,`__LINE__,bench_dataout);
 	   end 
 	   2: begin 
 	      bench_dataout <= 'h25;
 	      bench_ovalid <= 1;
-	      $display("Sending %d to pipeline cycle %d",bench_dataout,cycle_count);
+	      $display("%5d,%s,%4d,Sending %d to pipeline",cycle_count,`__FILE__,`__LINE__,bench_dataout);
 	   end
 	   default: begin 
 	      bench_dataout <= 0;

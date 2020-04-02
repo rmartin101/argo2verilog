@@ -25,7 +25,6 @@
   `define RESET (rst)
 `endif 
 
-
 module argo_fifo #(parameter ADDR_WIDTH=3, DATA_WIDTH=32, DEPTH = (1 << ADDR_WIDTH),FIFO_ID=7)
                   (clk, rst, rd_en, rd_data, wr_en, wr_data, full, empty );
    /* port definitions */
@@ -61,15 +60,20 @@ module argo_fifo #(parameter ADDR_WIDTH=3, DATA_WIDTH=32, DEPTH = (1 << ADDR_WID
      .input_data(wr_data),
      .output_data(rd_data)
    );
- 
+
+   always @(posedge clk) begin // reset test 
+      if `RESET begin
+	 fifo_id = FIFO_ID;
+	 $display("%5d,%s,%3d, FIFO got a reset ID: %3d",cycle_count,`__FILE__,`__LINE__,fifo_id);
+      end 
+   end 
   /******** control logic ********/ 
    /* write pointer control */   
    always @(posedge clk) begin 
       if `RESET begin
-	 fifo_id = FIFO_ID;
 	 write_ptr <= 0 ;
       end else if (wr_en) begin
-	 $display("fifo %d incrementing write pointer at val %d cycle %d",fifo_id,write_ptr,cycle_count);
+	 $display("%5d,%s,%4d, ID %2d incrementing write pointer at val %d ",cycle_count,`__FILE__,`__LINE__,fifo_id,write_ptr);
 	 write_ptr <= write_ptr + 1;
       end else begin 
 	 write_ptr <= write_ptr;
@@ -81,8 +85,8 @@ module argo_fifo #(parameter ADDR_WIDTH=3, DATA_WIDTH=32, DEPTH = (1 << ADDR_WID
       if `RESET begin 
 	 read_ptr <= 0 ;
       end else if (rd_en) begin
-	 $display("fifo %d increment read pointer at val %d cycle %d ",fifo_id, read_ptr,cycle_count);
 	 read_ptr <= read_ptr + 1;
+	 $display("%5d,%s,%4d, ID %2d increment read pointer at val %d",cycle_count,`__FILE__,`__LINE__,fifo_id, read_ptr);
       end else begin 
 	 read_ptr <= read_ptr;
       end 
@@ -94,12 +98,12 @@ module argo_fifo #(parameter ADDR_WIDTH=3, DATA_WIDTH=32, DEPTH = (1 << ADDR_WID
 	 item_cnt <= 0;
 	 // read an item 
       end else if ( ((rd_en) && !(wr_en)) && (item_cnt != 0)) begin
-	 $display("fifo %d decrement item count at val %d cycle %d",fifo_id,item_cnt,cycle_count);
+	 $display("%5d,%s,%4d, ID %2d decrement item count at %d",cycle_count,`__FILE__,`__LINE__,fifo_id,item_cnt);
 	 item_cnt <= item_cnt - 1;
 
 	 // Write an item 
       end else if ((wr_en) && !(rd_en) && (item_cnt != DEPTH)) begin
-	 $display("fifo %d increment item count at %d cycle %d" ,fifo_id,item_cnt,cycle_count);
+	 $display("%5d,%s,%4d, ID %2d increment item count at %d",cycle_count,`__FILE__,`__LINE__,fifo_id,item_cnt);
 	 item_cnt <= item_cnt + 1;
       end else begin
 	 item_cnt <= item_cnt;
