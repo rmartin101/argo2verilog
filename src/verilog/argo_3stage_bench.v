@@ -49,7 +49,7 @@
 
 module argo_3stage_bench();
 
-   parameter MAX_CYCLES = 40;
+   parameter MAX_CYCLES = 50;
 
    reg clk;  // lock 
    reg rst;   // reset 
@@ -81,7 +81,7 @@ module argo_3stage_bench();
    assign bench_iready = bench_iready_reg;
    
    initial begin
-      // this module uses synchronous resets 
+      // the 3 stage bench module uses synchronous resets 
       // set the clock low and reset high to hold the system in the ready-to-reset state
       bench_ovalid =0;
       bench_dataout = 'h55;
@@ -97,44 +97,45 @@ module argo_3stage_bench();
 
    
    /* *********** data writer ***********************/
+   /* use block assignements to make things easier in the test bench */
+   /* so everything happens by the end of the clock */
    always @(posedge clk) begin
       if (bench_oready == 1) begin
-	 // this case statement is the input driver organized by the specific cycle count 
-	 case (cycle_count)
-	   1 : begin 
+	 // this case statement is the input driver organized by the specific cycle count
+	 if ( (cycle_count >=0) && (cycle_count < 10) ) begin 
 	      bench_dataout = 'h25;
 	      bench_ovalid = 1;
-	      $display("%5d,%s,%4d,Sending %d to pipeline",cycle_count,`__FILE__,`__LINE__,bench_dataout);
-	   end 
-	   2: begin 
-	      bench_dataout = 'h55;
+	      $display("%5d,%s,%4d,Sending h%h to pipeline",cycle_count,`__FILE__,`__LINE__,bench_dataout);
+	   end else if ((cycle_count >=10) && (cycle_count < 20)) begin 
+	     bench_dataout = 'h55;
+	     bench_ovalid = 1;
+	     $display("%5d,%s,%4d,Sending h%h to pipeline",cycle_count,`__FILE__,`__LINE__,bench_dataout);
+	   end else if ((cycle_count >=20) && (cycle_count < 30)) begin 
+	      bench_dataout = 'h19700328;
 	      bench_ovalid = 1;
-	      $display("%5d,%s,%4d,Sending %d to pipeline",cycle_count,`__FILE__,`__LINE__,bench_dataout);
+	      $display("%5d,%s,%4d,Sending h%h to pipeline",cycle_count,`__FILE__,`__LINE__,bench_dataout);
+	   end else begin
+	      bench_dataout = cycle_count;
+	      bench_ovalid = 1;
 	   end
-	   default: begin 
-	      bench_dataout = bench_dataout;
-	      bench_ovalid = bench_ovalid;
-	   end
-	 endcase
-      end else begin // if (oready == 0, the pipe is not ready to accept data )
-	bench_dataout = cycle_count;
-	bench_ovalid = 1;	 
-     end // else: !if(bench_oready == 1)
+	end // if (bench_oready == 1)
    end // always @ (posedge clk)
 
    /* *********** data reader ***********************/
-   // we always accept data    
+   // The testbench always accepts data    
    always @(posedge clk) begin
       bench_iready_reg = 1;  // act as infinite sink
       if (bench_ivalid == 1) begin
 	 bench_datain_reg = bench_datain;
-	 $display("%5d,%s,%4d, read value from last stage %d ",cycle_count,`__FILE__,`__LINE__,bench_datain);	 
+	 $display("%5d,%s,%4d, read value from last stage h%h ",cycle_count,`__FILE__,`__LINE__,bench_datain);	 
       end else begin
 	 bench_iready_reg =1;
       end
    end
    
-   /* *********** cycle counter ***********************/  
+   /* *********** cycle counter ***********************/
+   /* We could use the $time primitive, but dont */
+   
    always @(posedge clk) begin
       if (`RESET) begin
 	 cycle_count <= 0;

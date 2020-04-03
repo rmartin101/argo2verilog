@@ -112,7 +112,8 @@ module argo_fifo #(parameter ADDR_WIDTH=3, DATA_WIDTH=32, DEPTH = (1 << ADDR_WID
       end    
    end // always @ (posedge clk)
 
-   // leave a cycle counter in for now. Need it for debugging */
+   // leave a cycle counter in for now. Need it for debugging 
+   // Keep here instead of using $time as we'll need it for real 
    always @(posedge clk) begin
       if `RESET begin 
 	 cycle_count <= 0 ;
