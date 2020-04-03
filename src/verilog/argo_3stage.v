@@ -88,26 +88,28 @@ module argo_3stage(clk,rst,ivalid,iready,ovalid,oready,datain,dataout);
    reg [31:0] cycle_count ;  // cycle counter for performance and debugging
 
    /* control regs for the first control loop */
-   reg c_bit_00000_start ;  // initial state control
+   /* each bit defaults to setting the next bit in sequence */
+   /* some bits have FIFO interlocks to keep from advancing if */
+   /* an argo_fifo is full or empty */
+   
+   reg c_bit_00000_start ;  // initial state control, starts all stages 
    reg c_bit_00001;  // the control bits write into pipe 1
    reg c_bit_00002;
    reg c_bit_00003;
    reg c_bit_00004;
    reg c_bit_00005;
-   reg c_bit_00006;   
-   reg c_bit_00007;
-   reg c_bit_00008;   
+   reg c_bit_00006;   // returns to control bit 1 
 
    /* control regs for the second control loop */
    // move data from pipe 1 to pipe 2
-   reg c_bit_00101;  // these control read from pipe 1
-   reg c_bit_00102;  // and write to pipe 2
+   reg c_bit_00101; 
+   reg c_bit_00102; 
    reg c_bit_00103;
    reg c_bit_00104;
    reg c_bit_00105;
    reg c_bit_00106;   
    reg c_bit_00107;
-   reg c_bit_00108;
+   reg c_bit_00108;  // return to 00101
 
    /* control regs for third control loop */
    /* read from pipe 2 */
@@ -127,7 +129,7 @@ module argo_3stage(clk,rst,ivalid,iready,ovalid,oready,datain,dataout);
    wire [PIPE_1_DATA_WIDTH-1:0 ] pipe_1_read_data;
    reg pipe_1_rd_en_reg;
    reg pipe_1_wr_en_reg;   
-   wire pipe_1_full;
+   wire pipe_1_ufll;
    wire pipe_1_empty;
 
    reg  [PIPE_2_DATA_WIDTH-1:0 ] pipe_2_write_data;
