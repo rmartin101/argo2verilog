@@ -49,7 +49,7 @@
 
 module argo_3stage_bench();
 
-   parameter MAX_CYCLES = 10;
+   parameter MAX_CYCLES = 40;
 
    reg clk;  // lock 
    reg rst;   // reset 
@@ -67,7 +67,7 @@ module argo_3stage_bench();
    wire bench_ivalid;
    wire [31:0] bench_datain;
    reg  [31:0]  bench_datain_reg;
-    
+
    argo_3stage STAGETEST (
        .clk(clk),
        .rst(rst),		 
@@ -107,29 +107,30 @@ module argo_3stage_bench();
 	      $display("%5d,%s,%4d,Sending %d to pipeline",cycle_count,`__FILE__,`__LINE__,bench_dataout);
 	   end 
 	   2: begin 
-	      bench_dataout <= 'h25;
-	      bench_ovalid <= 1;
+	      bench_dataout = 'h55;
+	      bench_ovalid = 1;
 	      $display("%5d,%s,%4d,Sending %d to pipeline",cycle_count,`__FILE__,`__LINE__,bench_dataout);
 	   end
 	   default: begin 
-	      bench_dataout <= 0;
-	      bench_ovalid <= 0;
+	      bench_dataout = bench_dataout;
+	      bench_ovalid = bench_ovalid;
 	   end
 	 endcase
       end else begin // if (oready == 0, the pipe is not ready to accept data )
-	bench_dataout <= 0;
-	bench_ovalid <= 0;	 
+	bench_dataout = cycle_count;
+	bench_ovalid = 1;	 
      end // else: !if(bench_oready == 1)
    end // always @ (posedge clk)
 
    /* *********** data reader ***********************/
    // we always accept data    
    always @(posedge clk) begin
-      bench_iready_reg <= 1;  // act as infinite sink
+      bench_iready_reg = 1;  // act as infinite sink
       if (bench_ivalid == 1) begin
-	 bench_datain_reg <= bench_datain;
+	 bench_datain_reg = bench_datain;
+	 $display("%5d,%s,%4d, read value from last stage %d ",cycle_count,`__FILE__,`__LINE__,bench_datain);	 
       end else begin
-	 bench_iready_reg <=1;
+	 bench_iready_reg =1;
       end
    end
    

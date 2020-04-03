@@ -65,7 +65,9 @@ module argo_fifo #(parameter ADDR_WIDTH=3, DATA_WIDTH=32, DEPTH = (1 << ADDR_WID
       if `RESET begin
 	 fifo_id = FIFO_ID;
 	 $display("%5d,%s,%3d, FIFO got a reset ID: %3d",cycle_count,`__FILE__,`__LINE__,fifo_id);
-      end 
+      end else begin // UNMATCHED !!
+	 fifo_id <= fifo_id;
+      end
    end 
   /******** control logic ********/ 
    /* write pointer control */   
