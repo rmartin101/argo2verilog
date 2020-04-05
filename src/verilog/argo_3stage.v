@@ -54,20 +54,22 @@
  * The middle module sets oready. If ivalid is high, the module must latch the data. 
  */
 
+`define NEGRESET
+
 `ifdef NEGRESET
- `define RESET (~(rst))
+ `define RESET (~(resetn))
 `else
- `define RESET (rst)
+ `define RESET (resetn)
 `endif
 
-module argo_3stage(clk,rst,ivalid,iready,ovalid,oready,datain,dataout);
+module argo_3stage(clock,resetn,ivalid,iready,ovalid,oready,datain,dataout);
    parameter PIPE_1_DATA_WIDTH = 32;
    parameter PIPE_1_ADDR_WIDTH = 4;
    parameter PIPE_2_DATA_WIDTH = 32;
    parameter PIPE_2_ADDR_WIDTH = 3;
 
-   input clk;  // clock 
-   input rst;   // reset. Can set to positve or negative
+   input clock;  // clock 
+   input resetn;   // reset. Can set to positve or negative
 
    // control to/from the upstream module
    output oready;  // output ready
@@ -80,17 +82,17 @@ module argo_3stage(clk,rst,ivalid,iready,ovalid,oready,datain,dataout);
    output reg [PIPE_2_DATA_WIDTH-1:0] dataout;  // data output
    
    /* variables */
-   reg [31: 0] X1;  // write into FIFO 1
-   reg [31: 0] Y1;  // Read from FIFO 1
-   reg [31: 0] Z1;  // write to FIFO 2
+   reg [31: 0] X1;  // write into queue 1
+   reg [31: 0] Y1;  // Read from queue 1
+   reg [31: 0] Z1;  // write to queue 2
 
    /* control regs */
    reg [31:0] cycle_count ;  // cycle counter for performance and debugging
 
    /* control regs for the first control loop */
    /* each bit defaults to setting the next bit in sequence */
-   /* some bits have FIFO interlocks to keep from advancing if */
-   /* an argo_fifo is full or empty */
+   /* some bits have queue interlocks to keep from advancing if */
+   /* an argo_queue is full or empty */
    
    reg c_bit_00000_start ;  // initial state control, starts all stages 
    reg c_bit_00001;  // the control bits write into pipe 1
@@ -140,39 +142,39 @@ module argo_3stage(clk,rst,ivalid,iready,ovalid,oready,datain,dataout);
    wire pipe_2_empty;
 
    /* channels */
-   argo_fifo #(.ADDR_WIDTH(PIPE_1_ADDR_WIDTH),.DATA_WIDTH(PIPE_1_DATA_WIDTH),.DEPTH(1<<PIPE_1_ADDR_WIDTH),.FIFO_ID(1)) PIPE_1 (
-    .clk(clk),
-    .rst(rst),		 
+   argo_queue #(.ADDR_WIDTH(PIPE_1_ADDR_WIDTH),.DATA_WIDTH(PIPE_1_DATA_WIDTH),.DEPTH(1<<PIPE_1_ADDR_WIDTH),.FIFO_ID(1)) PIPE_1 (
+    .clock(clock),
+    .resetn(resetn),		 
     .rd_en(pipe_1_rd_en_reg),
     .rd_data(pipe_1_read_data),
     .wr_en(pipe_1_wr_en_reg),
     .wr_data(pipe_1_write_data),
     .full(pipe_1_full),
     .empty(pipe_1_empty)
-);
+   );
  
-/* the 2nd channel */
-argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH(1<<PIPE_2_ADDR_WIDTH),.FIFO_ID(2)) PIPE_2 (
-    .clk(clk),
-    .rst(rst),		 
+   /* the 2nd channel */
+   argo_queue #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH(1<<PIPE_2_ADDR_WIDTH),.FIFO_ID(2)) PIPE_2 (
+    .clock(clock),
+    .resetn(resetn),		 
     .rd_en(pipe_2_rd_en_reg),
     .rd_data(pipe_2_read_data),
     .wr_en(pipe_2_wr_en_reg),
     .wr_data(pipe_2_write_data),
     .full(pipe_2_full),
     .empty(pipe_2_empty)
-);
+   );
 
    // Only allow external input if control bit 1 is set 
    assign oready = c_bit_00001;
 
-   always @(posedge clk) begin // reset test 
+   always @(posedge clock) begin // reset test 
       if `RESET begin 
 	 $display("%5d,%s,%3d, got a reset",cycle_count,`__FILE__,`__LINE__);
       end 
    end
    // ************ Data flow section ********************* */
-   always @(posedge clk) begin // Data flow for X1
+   always @(posedge clock) begin // Data flow for X1
       if `RESET begin
 	 X1 <= 0;
       end else if ((c_bit_00001 == 1) && (ivalid == 1) ) begin
@@ -186,7 +188,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
    end
 
    /**** channel 1 writer data flow section *********/
-   always @(posedge clk) begin 
+   always @(posedge clock) begin 
       if `RESET begin
 	 pipe_1_write_data <= 0;
 	 pipe_1_wr_en_reg <= 0;
@@ -203,7 +205,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
 
    
    /**** channel 1 reader enable flow section ****/
-   always @(posedge clk) begin // data flow for read enable on FIFO 1
+   always @(posedge clock) begin // data flow for read enable on FIFO 1
       if `RESET begin
 	 pipe_1_rd_en_reg <= 0 ;      
       end
@@ -217,7 +219,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       
    // data flow for Y1, read from channel 1
    // this is also where the simple filter code is 
-   always @(posedge clk) begin // data flow for reads of the filo
+   always @(posedge clock) begin // data flow for reads of the filo
       if `RESET begin
 	 Y1 <= 0;
       end
@@ -235,11 +237,11 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
 	    Y1 <= Y1;
 	 end
       end
-   end // always @ (posedge clk)
+   end // always @ (posedge clock)
 
 
    /**** channel 2 writer data flow section *********/
-   always @(posedge clk) begin 
+   always @(posedge clock) begin 
       if `RESET begin
 	 pipe_2_write_data <= 0;
 	 pipe_2_wr_en_reg <= 0;
@@ -255,7 +257,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
    end
    
    /**** channel 2 reader data flow section *********/
-   always @(posedge clk) begin // data flow for read enable on FIFO 1
+   always @(posedge clock) begin // data flow for read enable on FIFO 1
       if `RESET begin
 	 pipe_2_rd_en_reg <= 0 ;
       end
@@ -269,7 +271,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
 
    // is this the data-flow for Z1, which is the output of the 3 stage pipeline
    // we set the output reg everytime Z1 gets set for one clock cycle.  
-   always @(posedge clk) begin // data flow for reads of the filo
+   always @(posedge clock) begin // data flow for reads of the filo
       if `RESET begin
 	 Z1 <= 0;
       end
@@ -282,7 +284,7 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
    end
 
    // data flow of the output interface of the pipeline 
-   always @(posedge clk) begin 
+   always @(posedge clock) begin 
       if `RESET begin
 	 dataout <= 0;
 	 ovalid <=0;
@@ -298,14 +300,14 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
    end
    
    /******************** I/O  section *********************/
-   always @(posedge clk) begin // data flow for reads of the filo
+   always @(posedge clock) begin // data flow for reads of the filo
       if (c_bit_00107== 1)  begin
 	 $display("%5d,%s,%4d, control line 00107 X1,Y1,Z1 are : h%h h%h h%h",cycle_count,`__FILE__,`__LINE__,X1,Y1,Z1);
       end
    end
    
    // ************ control flow section for Stage 1 ********************* */
-   always @(posedge clk) begin // control for line c_bit_00001;
+   always @(posedge clock) begin // control for line c_bit_00001;
       if `RESET begin
 	 c_bit_00000_start <= 1;
 	 c_bit_00001 <= 0 ;
@@ -321,10 +323,10 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
 	 c_bit_00000_start <= 0;
 	 c_bit_00001 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
 
    
-   always @(posedge clk) begin // control for line c_bit_00002;
+   always @(posedge clock) begin // control for line c_bit_00002;
       if `RESET begin
 	 c_bit_00002 <= 0;
       end
@@ -334,9 +336,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end else begin
 	 c_bit_00002 <= 0;  	
       end 
-   end // end @ posedge clk
+   end // end @ posedge clock
    
-   always @(posedge clk) begin // control for line c_bit_00003;
+   always @(posedge clock) begin // control for line c_bit_00003;
       if `RESET begin
 	 c_bit_00003 <= 0 ;
       end
@@ -347,9 +349,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else  begin 
 	 c_bit_00003 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
 
-   always @(posedge clk) begin // control for line c_bit_00003;
+   always @(posedge clock) begin // control for line c_bit_00003;
       if `RESET begin
 	 c_bit_00004 <= 0 ;
       end
@@ -360,9 +362,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else  begin 
 	 c_bit_00004 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
 
-   always @(posedge clk) begin // control for line c_bit_00005;
+   always @(posedge clock) begin // control for line c_bit_00005;
       if `RESET begin
 	 c_bit_00005 <= 0 ;
       end
@@ -373,9 +375,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else  begin 
 	 c_bit_00005 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
 
-   always @(posedge clk) begin // control for line c_bit_00006;
+   always @(posedge clock) begin // control for line c_bit_00006;
       if `RESET begin
 	 c_bit_00006 <= 0 ;
       end
@@ -386,11 +388,11 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else  begin 
 	 c_bit_00006 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
 
    /*  *********** control flow section for Stage 2 Reader and Writer ********************* */   
 
-   always @(posedge clk) begin // control for line c_bit_00101;
+   always @(posedge clock) begin // control for line c_bit_00101;
       if `RESET begin
 	 c_bit_00101 <= 0 ;
       end
@@ -400,10 +402,10 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end else  begin
 	 c_bit_00101 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
    
    
-   always @(posedge clk) begin // control for line c_bit_0102;
+   always @(posedge clock) begin // control for line c_bit_0102;
       if `RESET begin
 	 c_bit_00102 <= 0 ;
       end
@@ -414,9 +416,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
 	 c_bit_00102 <= 0;  	
       end 
       
-   end // end @ posedge clk
+   end // end @ posedge clock
    
-   always @(posedge clk) begin // control for line c_bit_00103;
+   always @(posedge clock) begin // control for line c_bit_00103;
       if `RESET begin
 	 c_bit_00103 <= 0 ;
       end
@@ -426,9 +428,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end else begin 
 	 c_bit_00103 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
    
-   always @(posedge clk) begin // control for line c_bit_00104;
+   always @(posedge clock) begin // control for line c_bit_00104;
       if `RESET begin
 	 c_bit_00104 <= 0 ;
       end   
@@ -438,9 +440,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end else begin 
 	 c_bit_00104 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
 
-   always @(posedge clk) begin // control for line c_bit_00105;
+   always @(posedge clock) begin // control for line c_bit_00105;
       if `RESET begin
 	 c_bit_00105 <= 0 ;
       end   
@@ -451,9 +453,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else  begin 
 	 c_bit_00105 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
    
-   always @(posedge clk) begin // control for line c_bit_00106;
+   always @(posedge clock) begin // control for line c_bit_00106;
       if `RESET begin
 	 c_bit_00106 <= 0 ;
       end   
@@ -463,9 +465,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end else  begin 
 	 c_bit_00106 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
    
-   always @(posedge clk) begin // control for line c_bit_00107;
+   always @(posedge clock) begin // control for line c_bit_00107;
       if `RESET begin
 	 c_bit_00107 <= 0 ;
       end   
@@ -475,9 +477,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end else  begin 
 	 c_bit_00107 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
    
-   always @(posedge clk) begin // control for line c_bit_00108;
+   always @(posedge clock) begin // control for line c_bit_00108;
       if `RESET begin
 	 c_bit_00108 <= 0 ;
       end   
@@ -488,11 +490,11 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else begin 
 	c_bit_00108 <= 0 ;  
       end
-   end // end @ posedge clk//    
+   end // end @ posedge clock//    
    
    /*  *********** control flow section for Stage 3 Reader ********************* */   
    
-   always @(posedge clk) begin // control for line c_bit_00201;
+   always @(posedge clock) begin // control for line c_bit_00201;
       if `RESET begin
 	 c_bit_00201 <= 0 ;
       end   
@@ -502,9 +504,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       end else begin
 	c_bit_00201 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
    
-   always @(posedge clk) begin // control for line c_bit_0202;
+   always @(posedge clock) begin // control for line c_bit_0202;
       if `RESET begin
 	 c_bit_00202 <= 0 ;
       end   
@@ -515,11 +517,11 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
 	 c_bit_00202 <= 0;  	
       end 
       
-   end // end @ posedge clk
+   end // end @ posedge clock
    
    // this is the control clause that allows reading from the pipe 2 into Z1
    // We can't pass this control bit unless both the downstream module is ready and pipe 2 has data
-   always @(posedge clk) begin // control for line c_bit_00203;
+   always @(posedge clock) begin // control for line c_bit_00203;
       if `RESET begin
 	 c_bit_00203 <= 0 ;
       end   
@@ -530,9 +532,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else  begin 
 	 c_bit_00203 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
    
-   always @(posedge clk) begin // control for line c_bit_00204;
+   always @(posedge clock) begin // control for line c_bit_00204;
       if `RESET begin
 	 c_bit_00204 <= 0 ;
       end   
@@ -543,9 +545,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else  begin 
 	 c_bit_00204 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
    
-   always @(posedge clk) begin // control for line c_bit_00205;
+   always @(posedge clock) begin // control for line c_bit_00205;
       if `RESET begin
 	 c_bit_00205 <= 0 ;
       end   
@@ -556,9 +558,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else  begin 
 	 c_bit_00205 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
    
-   always @(posedge clk) begin // control for line c_bit_00206;
+   always @(posedge clock) begin // control for line c_bit_00206;
       if `RESET begin
 	 c_bit_00206 <= 0 ;
       end   
@@ -569,9 +571,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else  begin 
 	 c_bit_00206 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
    
-   always @(posedge clk) begin // control for line c_bit_00207;
+   always @(posedge clock) begin // control for line c_bit_00207;
       if `RESET begin
 	 c_bit_00207 <= 0 ;
       end   
@@ -582,9 +584,9 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else  begin 
 	 c_bit_00207 <= 0 ;  
       end
-   end // end @ posedge clk
+   end // end @ posedge clock
    
-   always @(posedge clk) begin // control for line c_bit_00208;
+   always @(posedge clock) begin // control for line c_bit_00208;
       if `RESET begin
 	 c_bit_00208 <= 0 ;
       end   
@@ -595,12 +597,12 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
       else  begin 
 	 c_bit_00208 <= 0 ;  
       end
-   end // end @ posedge clk//    
+   end // end @ posedge clock//    
    
    /* *********** cycle counter ***********************/
    /* mostly for debugging. Keep here instead of using $time as we'll need it*/
    /* for real */ 
-   always @(posedge clk) begin
+   always @(posedge clock) begin
       if `RESET begin
 	 cycle_count <= 0;
       end   

@@ -19,6 +19,8 @@
 /* this file is the template for the Verilog Templates for Channels */
 
 /* switch for positive vs negative resets */
+`define NEGRESET
+
 `ifdef NEGRESET
   `define RESET (~(rst))
 `else

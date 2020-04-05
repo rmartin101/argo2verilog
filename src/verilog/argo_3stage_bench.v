@@ -41,6 +41,9 @@
  * The middle module sets oready. If ivalid is high, the module must latch the data. 
  */
 
+//`define `POSRESET
+`define NEGRESET
+  
 `ifdef NEGRESET
   `define RESET (~(rst))
 `else
@@ -69,8 +72,8 @@ module argo_3stage_bench();
    reg  [31:0]  bench_datain_reg;
 
    argo_3stage STAGETEST (
-       .clk(clk),
-       .rst(rst),		 
+       .clock(clk),
+       .resetn(rst),		 
        .ivalid(bench_ovalid),
        .iready(bench_iready),
        .ovalid(bench_ivalid),
@@ -85,6 +88,7 @@ module argo_3stage_bench();
       // set the clock low and reset high to hold the system in the ready-to-reset state
       bench_ovalid =0;
       bench_dataout = 'h55;
+`ifdef POSRESET
       clk = 0;  // force both reset and clock low 
       rst = 0;
       #1;
@@ -93,6 +97,18 @@ module argo_3stage_bench();
       #1;
       rst = 0;  // pull reset and clock low, then let clock run
       clk = 0;
+`endif 
+`ifdef NEGRESET
+      clk = 0;  // force both reset and clock low 
+      rst = 1;
+      #1;
+      rst = 0;  // pull reset and clock high, which generates a posedge clock and reset 
+      clk = 1; 
+      #1;
+      rst = 1;  // pull reset and clock low, then let clock run
+      clk = 0;
+`endif 
+      
    end // initial 
 
    

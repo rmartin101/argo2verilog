@@ -15,8 +15,8 @@
 
 all: argo_3stage_bench.vvp
 
-argo_3stage_bench.vvp: argo_3stage_bench.v argo_3stage.v argo_fifo.v d_p_ram.v 
-	iverilog -g2005-sv -o argo_3stage_bench.vvp argo_3stage_bench.v argo_3stage.v argo_fifo.v d_p_ram.v
+argo_3stage_bench.vvp: argo_3stage_bench.v argo_3stage.v argo_queue.v d_p_ram.v 
+	iverilog -g2005-sv -o argo_3stage_bench.vvp argo_3stage_bench.v argo_3stage.v argo_queue.v d_p_ram.v
 
 .PHONY: clean run
 

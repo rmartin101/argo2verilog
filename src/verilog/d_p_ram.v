@@ -18,10 +18,10 @@
 /* a simple dual ported RAM */
 /* this should be inferrable by allmost all the tools into a BRAM */
 module d_p_ram #(parameter ADDR_WIDTH = 3, DATA_WIDTH = 32, DEPTH = (1<< ADDR_WIDTH))
-                (clk, write_en, write_addr, read_addr, input_data, output_data);
+                (clock, write_en, write_addr, read_addr, input_data, output_data);
 
 /* port definitions */    
-   input wire 			clk;
+   input wire 			clock;
    input wire 			write_en;
    input wire [ADDR_WIDTH-1:0] 	write_addr;
    input wire [ADDR_WIDTH-1:0] 	read_addr;
@@ -30,7 +30,7 @@ module d_p_ram #(parameter ADDR_WIDTH = 3, DATA_WIDTH = 32, DEPTH = (1<< ADDR_WI
 
    reg [DATA_WIDTH-1:0] memory [0:DEPTH-1]; 
 
-   always @ (posedge clk) begin
+   always @ (posedge clock) begin
       if(write_en) begin
          memory[write_addr] <= input_data;
       end
