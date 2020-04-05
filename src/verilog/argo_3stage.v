@@ -272,14 +272,12 @@ argo_fifo #(.ADDR_WIDTH(PIPE_2_ADDR_WIDTH),.DATA_WIDTH(PIPE_2_DATA_WIDTH),.DEPTH
    always @(posedge clk) begin // data flow for reads of the filo
       if `RESET begin
 	 Z1 <= 0;
-	 ovalid <=0;
       end
       else if ( (c_bit_00204 == 1) && (pipe_2_empty == 0) ) begin
 	 Z1 <= pipe_2_read_data;
 	 $display("%5d,%s,%4d,reading value from pipe 2 val: h%h",cycle_count,`__FILE__,`__LINE__,pipe_2_read_data);
       end else begin 
 	 Z1 <= Z1;
-	 ovalid <= 0;
       end
    end
 
