@@ -42,7 +42,7 @@
  */
 
 //`define `POSRESET
-`define NEGRESET
+`define NEGRESET 
   
 `ifdef NEGRESET
   `define RESET (~(rst))
@@ -53,10 +53,22 @@
 module argo_3stage_bench();
 
    parameter MAX_CYCLES = 50;
-
+   parameter INPUT_SIZE = 256;
+      
+   parameter READY  =    0;
+   parameter WAITING =   1;
+   parameter RECEIVED =  2;
+   
    reg clk;  // lock 
    reg rst;   // reset 
    reg [31:0]  cycle_count;
+   reg [7:0]   current_state;
+    
+   reg [7:0]  i;  // index for the input array 
+   reg [7:0]  j;  // index for the output array
+   
+   reg [31:0]  input_values [INPUT_SIZE];
+   reg [31:0]  output_values [INPUT_SIZE];
    
    // inputs to the pipeline
    reg bench_oready;
@@ -70,7 +82,7 @@ module argo_3stage_bench();
    wire bench_ivalid;
    wire [31:0] bench_datain;
    reg  [31:0]  bench_datain_reg;
-
+   
    argo_3stage STAGETEST (
        .clock(clk),
        .resetn(rst),		 
@@ -84,10 +96,29 @@ module argo_3stage_bench();
    assign bench_iready = bench_iready_reg;
    
    initial begin
+      clk = 0;  // force both reset and clock low 
+      rst = 0;
+      $display("%5d,%s,%4d,initial begin",cycle_count,`__FILE__,`__LINE__);      
       // the 3 stage bench module uses synchronous resets 
       // set the clock low and reset high to hold the system in the ready-to-reset state
       bench_ovalid =0;
-      bench_dataout = 'h55;
+      // populate the input vector 
+      for (i = 0; i< 25 ; i = i + 1 ) begin
+	 $display("%5d,%s,%4d, in loop",cycle_count,`__FILE__,`__LINE__,i);      
+	  case (i)
+	    0:  input_values[i] = 'h19700328;
+	    1:  input_values[i] = 'h19700101;
+	    2:  input_values[i] = 'h19700328;
+	    3:  input_values[i] = 'h19700101;
+	    10: input_values[i] = 'h19700328;
+	    12: input_values[i] = 'h19700101;
+	    default: input_values[i] = i % 7;
+	   endcase  
+      end	
+      i = 0;
+      j = 0;
+      current_state = READY;
+      $display("%5d,%s,%4d,current state %d",cycle_count,`__FILE__,`__LINE__,current_state);      
 `ifdef POSRESET
       clk = 0;  // force both reset and clock low 
       rst = 0;
@@ -116,25 +147,32 @@ module argo_3stage_bench();
    /* use block assignements to make things easier in the test bench */
    /* so everything happens by the end of the clock */
    always @(posedge clk) begin
-      if (bench_oready == 1) begin
-	 // this case statement is the input driver organized by the specific cycle count
-	 if ( (cycle_count >=0) && (cycle_count < 10) ) begin 
-	      bench_dataout = 'h25;
+      $display("%5d,%s,%4d,current state %d",cycle_count,`__FILE__,`__LINE__,current_state);
+      case (current_state)
+	READY : begin
+	   if (bench_oready == 1) begin
+	      bench_dataout = input_values[i];
 	      bench_ovalid = 1;
-	      $display("%5d,%s,%4d,Sending h%h to pipeline",cycle_count,`__FILE__,`__LINE__,bench_dataout);
-	   end else if ((cycle_count >=10) && (cycle_count < 20)) begin 
-	     bench_dataout = 'h55;
-	     bench_ovalid = 1;
-	     $display("%5d,%s,%4d,Sending h%h to pipeline",cycle_count,`__FILE__,`__LINE__,bench_dataout);
-	   end else if ((cycle_count >=20) && (cycle_count < 30)) begin 
-	      bench_dataout = 'h19700328;
-	      bench_ovalid = 1;
-	      $display("%5d,%s,%4d,Sending h%h to pipeline",cycle_count,`__FILE__,`__LINE__,bench_dataout);
+	      bench_iready_reg = 1;
+	      $display("%5d,%s,%4d,Sending h%h to pipeline",cycle_count,`__FILE__,`__LINE__,input_values[i]);
+	      i = i + 1;
+	      current_state = WAITING;
 	   end else begin
-	      bench_dataout = cycle_count;
-	      bench_ovalid = 1;
+	      $display("%5d,%s,%4d,Waiting Write to Pipeline",cycle_count,`__FILE__,`__LINE__);
 	   end
-	end // if (bench_oready == 1)
+	end // case: READY
+	
+	WAITING: begin
+	   if (bench_ivalid == 1) begin
+	      output_values[i] = bench_datain;
+	      $display("%5d,%s,%4d, Received value from last stage h%h ",cycle_count,`__FILE__,`__LINE__,bench_datain);
+	      current_state = READY;
+	   end else begin
+	      $display("%5d,%s,%4d, Waitng Read from Pipeline ",cycle_count,`__FILE__,`__LINE__);
+	   end
+	end
+      endcase 
+
    end // always @ (posedge clk)
 
    /* *********** data reader ***********************/
