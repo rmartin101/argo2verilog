@@ -52,12 +52,13 @@
 
 module argo_3stage_bench();
 
-   parameter MAX_CYCLES = 50;
+   parameter MAX_CYCLES = 100;
    parameter INPUT_SIZE = 256;
       
    parameter READY  =    0;
-   parameter WAITING =   1;
-   parameter RECEIVED =  2;
+   parameter LATCH =     1;
+   parameter WAITING =   2;
+
    
    reg clk;  // lock 
    reg rst;   // reset 
@@ -156,15 +157,22 @@ module argo_3stage_bench();
 	      bench_iready_reg = 1;
 	      $display("%5d,%s,%4d,Sending h%h to pipeline",cycle_count,`__FILE__,`__LINE__,input_values[i]);
 	      i = i + 1;
-	      current_state = WAITING;
+	      current_state = LATCH;
 	   end else begin
 	      $display("%5d,%s,%4d,Waiting Write to Pipeline",cycle_count,`__FILE__,`__LINE__);
 	   end
 	end // case: READY
+	LATCH: begin
+	   bench_ovalid = 1;
+	   current_state = WAITING;
+	   $display("%5d,%s,%4d, Delay latch into pipeline",cycle_count,`__FILE__,`__LINE__);
+	end
 	
 	WAITING: begin
+	   bench_ovalid = 0;  // must use a taking-turns protocol to get next input so set to zero 
 	   if (bench_ivalid == 1) begin
-	      output_values[i] = bench_datain;
+	      output_values[j] = bench_datain;
+	      j = j +1;
 	      $display("%5d,%s,%4d, Received value from last stage h%h ",cycle_count,`__FILE__,`__LINE__,bench_datain);
 	      current_state = READY;
 	   end else begin

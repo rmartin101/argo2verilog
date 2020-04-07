@@ -314,7 +314,7 @@ module argo_3stage(clock,resetn,ivalid,iready,ovalid,oready,datain,dataout);
       end // UNMATCHED !!
       /* this clause is, if the prior state was 1, or the lower loop was 1, or we are waiting for input, set */
        /* the current state to 00001 */
-      else if ((c_bit_00000_start == 1) || (c_bit_00006 == 1) || (c_bit_00001 == 1 && (ivalid == 0) ))  begin
+      else if ((c_bit_00000_start == 1) || (c_bit_00006 == 1) || ((c_bit_00001 == 1) && (ivalid == 0)))   begin
 	 c_bit_00000_start <= 0;
 	 c_bit_00001 <= 1 ;
 	 $display("%5d,%s,%4d, at control line 00001 ivalid %1d",cycle_count,`__FILE__,`__LINE__,ivalid);
@@ -329,8 +329,9 @@ module argo_3stage(clock,resetn,ivalid,iready,ovalid,oready,datain,dataout);
    always @(posedge clock) begin // control for line c_bit_00002;
       if `RESET begin
 	 c_bit_00002 <= 0;
-      end
-      else if ( (c_bit_00001 == 1) || ((c_bit_00002 == 1) && pipe_1_full == 1)) begin
+      end   // we can only enter the state if in the prior state and the data is ready, or
+            // we were in this state and next pipeline is open. 
+      else if ( ((c_bit_00001 == 1) && (ivalid == 1)) || ((c_bit_00002 == 1) && (pipe_1_full == 1))) begin
 	 c_bit_00002 <= 1 ;
 	 $display("%5d,%s,%4d,at control line 00002 pipe_1_full is %1d",cycle_count,`__FILE__,`__LINE__,pipe_1_full);
       end else begin
@@ -527,7 +528,7 @@ module argo_3stage(clock,resetn,ivalid,iready,ovalid,oready,datain,dataout);
       end   
       else if ( (c_bit_00202 == 1) && (pipe_2_empty == 0) )begin 
 	 c_bit_00203 <= 1 ;
-	 $display("%5d,%s,%4d,at control line 203",cycle_count,`__FILE__,`__LINE__); 
+	 $display("%5d,%s,%4d,at control line 203, pipe_2_empty is %1d",cycle_count,`__FILE__,`__LINE__,pipe_2_empty); 
       end 
       else  begin 
 	 c_bit_00203 <= 0 ;  
