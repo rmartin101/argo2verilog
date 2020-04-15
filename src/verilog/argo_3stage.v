@@ -68,7 +68,7 @@ module argo_3stage(clock,resetn,ivalid,iready,ovalid,oready,datain,dataout);
    parameter PIPE_2_DATA_WIDTH = 32;
    parameter PIPE_2_ADDR_WIDTH = 3;
 
-   input clock;  // clock 
+   input clock;  // clock x1
    input resetn;   // reset. Can set to positve or negative
 
    // control to/from the upstream module

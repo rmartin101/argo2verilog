@@ -1,9 +1,9 @@
 
 ANTLR4=~/bin/antlr4 
 
-all: argo2verilog.go 
+all: argo2verilog.go genVerilog.go
 	${ANTLR4} -Dlanguage=Go -o parser Argo.g4
-	go build -gcflags 'all=-N -l' argo2verilog.go
+	go build -gcflags 'all=-N -l' argo2verilog.go genVerilog.go 
 
 
 install: argo2verilog 

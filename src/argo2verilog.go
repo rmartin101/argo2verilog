@@ -63,7 +63,7 @@ const NOTSPECIFIED = -1   // not specified, e.g. channel or map size
 const PARAMETER = -2      // variable is a parameter 
 
 // force some control flow in some statements 
-func pass() {
+func Pass() {
 
 }
 
@@ -940,7 +940,7 @@ func (l *argoListener) linkDangles(parentHead,parentTail *statementNode) int {
 		case "emptyStmt":
 
 		default:
-			pass()
+			Pass()
 		}
 		
 
@@ -1149,7 +1149,7 @@ func (l *argoListener) parseIfStmt(ifNode *parseNode,funcDecl *parseNode,ifStmt 
 
 	if (takenHead != nil) || (takenTail != nil) || (elseHead != nil) || (elseTail !=nil) {
 		//fmt.Printf("IF statement at %s statement len %d \n",_file_line_(),len(statements))
-		pass()
+		Pass()
 	}
 	
 	return statements 
@@ -1987,7 +1987,7 @@ func (l *argoListener) getStatementGraph() int {
 
 			} else {
 				//fmt.Printf("Graph: AST Node %d was visited \n",astnode.id)
-				pass()
+				Pass()
 			}
 			
 		}
@@ -2045,7 +2045,7 @@ func (l *argoListener) getControlFlowGraph() int {
 	for i, stmtNode := range(l.statementGraph) {
 		if (stmtNode.stmtType == "functionDecl") {
 			_, funcEntryCfg = l.newCFGnode(stmtNode,0)
-			fmt.Printf("got node %s\n",funcEntryCfg)
+			//fmt.Printf("got node %s\n",funcEntryCfg)
 			prevCfgNode = funcEntryCfg
 		}
 		
@@ -2250,7 +2250,7 @@ func (l *argoListener) printStatementGraph() {
 		case "emptyStmt":
 
 		default:
-			pass()
+			Pass()
 		}
 
 		fmt.Printf("\n")		
@@ -2555,6 +2555,7 @@ func main() {
 	}
 
 	parsedProgram.getControlFlowGraph()  // now make the statementgraph
-	
+
+	OutputVerilog();
 
 }

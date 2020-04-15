@@ -41,6 +41,13 @@
  * The middle module sets oready. If ivalid is high, the module must latch the data. 
  */
 
+/* This test bench works is modeled on an openCL FPGA library. 
+ * a vector/array of inputs and outputs is used. Each element is an input and the results of 
+ * that input are stored in an output. E.g. output[i] = FPGA(input[i]). 
+ * This code uses a mostly async interface, although there is a 1 cycle delay to 
+ * latch the input once we set the ivalid line high
+ */
+
 //`define `POSRESET
 `define NEGRESET 
   
@@ -54,11 +61,11 @@ module argo_3stage_bench();
 
    parameter MAX_CYCLES = 100;
    parameter INPUT_SIZE = 256;
-      
-   parameter READY  =    0;
-   parameter LATCH =     1;
-   parameter WAITING =   2;
 
+   // test bench state machine parameters 
+   parameter READY  =    0;  // going to send data 
+   parameter LATCH =     1;  // one-cycle delay for pipeline to latch data 
+   parameter WAITING =   2;  // waiting for the output 
    
    reg clk;  // lock 
    reg rst;   // reset 
