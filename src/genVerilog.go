@@ -24,8 +24,11 @@ import (
 	"fmt"
 )
 
-func OutputVerilog() {
+func OutputVerilog(parsedProgram *argoListener) {
+
+	
 	fmt.Printf("$finish\n");
+	fmt.Printf("Got ");
 }
 
 
