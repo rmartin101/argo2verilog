@@ -162,7 +162,7 @@ type VariableNode struct {
 	dimensions []int      // the size of the dimensions 
 	mapKeyType string     // type of the map key
 	mapValType string     // type of the map value
-	cfgNodes  []*cfgNode  // control flow nodes for data-flow 
+	cfgNodes  []*CfgNode  // control flow nodes for data-flow 
 	visited        bool    // flag for if this node is visited 
 }
 
@@ -214,7 +214,7 @@ type StatementNode struct {
 
 // hold the control flow graph. Each control flow node represents 
 // a bit in the verilog used to generate the bitmapped based CFG in the HDL 
-type cfgNode struct {
+type CfgNode struct {
         id int                           // the integer ID of this node
 	cfgType string                   // the type of this node. assignment, test, call, return
 	cannName string                  // cannonical name for this node: package,function,sourceRow,sourceCol,subNum
@@ -222,12 +222,12 @@ type cfgNode struct {
 	stmtID    int                    // ID number of the statement node 
 	sourceRow      int               // row in the source code
 	sourceCol      int               // column in the source code
-	successor []*cfgNode           // if the 
-        successors_else []*cfgNode       // for NEXT and IF statements - following statement if the condition is false 
-	predecessors []*cfgNode          // for NEXT and IF statements - following statement if the condition is true 
-        predecessors_else []*cfgNode     // taken ifs  could come before this one
-        call_target   *cfgNode           // for a return, the possible gosub sources 
-        returnTargets []*cfgNode         // for a return, the possible nodes to return to 
+	successor []*CfgNode           // if the 
+        successors_else []*CfgNode       // for NEXT and IF statements - following statement if the condition is false 
+	predecessors []*CfgNode          // for NEXT and IF statements - following statement if the condition is true 
+        predecessors_else []*CfgNode     // taken ifs  could come before this one
+        call_target   *CfgNode           // for a return, the possible gosub sources 
+        returnTargets []*CfgNode         // for a return, the possible nodes to return to 
         readVars [] *VariableNode        // variables read by the node 
         writeVars [] *VariableNode       // vartiable written by the node 
         visited bool                     // for graph traversal, if visited or not
@@ -2022,13 +2022,13 @@ func (l *argoListener) getStatementGraph() int {
 
 /* ***************  Control Flow Graph and DataFlow Section   ********************** */
 
-func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*cfgNode) {
+func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode) {
 	var id int 
-	var node *cfgNode
+	var node *CfgNode
 
 	id = l.nextCfgID
 	l.nextCfgID++
-	node = new(cfgNode)
+	node = new(CfgNode)
 	node.cannName = "c_bit_" + strconv.Itoa(stmt.sourceRow) + "_" + strconv.Itoa(stmt.sourceCol) +
 		strconv.Itoa(subID)
 	node.id = id
@@ -2056,28 +2056,68 @@ unaryExpr
 */
 
 func (l *argoListener) getControlFlowGraph() int {
-	var funcEntryCfg, prevCfgNode *cfgNode 
+	var funcEntryCfg, prevCfgNode *CfgNode 
 	var maxNode int
 	var id int
 	
 	// for each function, start
 	maxNode = len(l.statementGraph)
-	id =0 
+	id =0
+	// walk through the list of statements 
 	for i, stmtNode := range(l.statementGraph) {
 
-		if (stmtNode.stmtType == "functionDecl") {
-			id, funcEntryCfg = l.newCFGnode(stmtNode,0)	
-			prevCfgNode = funcEntryCfg
+		if (stmtNode.stmtType == "assignment") {
 		}
 		
-		if (stmtNode.stmtType == "sendStmt") {
+		if (stmtNode.stmtType == "breakStmt") {
 			
 		}
-
+		
+		if (stmtNode.stmtType == "continueStmt" ) {
+			
+		}
+		
+		if (stmtNode.stmtType == "eos" ) {
+			
+		}
+		
+		if (stmtNode.stmtType == "expression" ) {
+			
+		}
+		
+		if (stmtNode.stmtType == "expressionStmt") {
+		}
+		
 		if (stmtNode.stmtType == "forStmt") {
-			
 		}
-
+		if (stmtNode.stmtType == "FuncExit") {
+		}
+		
+		if (stmtNode.stmtType == "functionDecl" ) {
+			id, funcEntryCfg = l.newCFGnode(stmtNode, 0)
+			prevCfgNode = funcEntryCfg 
+		}
+		
+		if (stmtNode.stmtType == "goStmt") {
+		}
+		
+		if (stmtNode.stmtType == "ifStmt" ) {
+		}
+		
+		if (stmtNode.stmtType == "incDecStmt" ) {
+		}
+		
+		if (stmtNode.stmtType == "returnStmt" ) {
+		}
+		
+		if (stmtNode.stmtType == "sendStmt" ) {
+		}
+		
+		if (stmtNode.stmtType == "shortVarDecl" ) {
+		}
+		
+		if (stmtNode.stmtType == "unaryExpr" ) {
+		}
 		
 		if (i < maxNode) {
 			
