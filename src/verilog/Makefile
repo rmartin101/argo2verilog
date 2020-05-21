@@ -13,10 +13,13 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>
 
-all: argo_3stage_bench.vvp
+all: argo_3stage_bench.vvp argo_packet_bench.vvp
 
 argo_3stage_bench.vvp: argo_3stage_bench.v argo_3stage.v argo_queue.v d_p_ram.v 
 	iverilog -g2005-sv -o argo_3stage_bench.vvp argo_3stage_bench.v argo_3stage.v argo_queue.v d_p_ram.v
+
+argo_packet_bench.vvp: argo_packet_bench.v argo_3stage.v argo_queue.v d_p_ram.v
+	iverilog -g2005-sv -o argo_packet_bench.vvp argo_packet_bench.v argo_packet.v argo_queue.v d_p_ram.v
 
 .PHONY: clean run
 
@@ -25,3 +28,4 @@ clean:
 
 run:
 	vvp argo_3stage_bench.vvp
+732-

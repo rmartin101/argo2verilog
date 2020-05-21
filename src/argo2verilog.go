@@ -364,8 +364,8 @@ func (l *ArgoErrorListener) ReportContextSensitivity(recognizer antlr.Parser, df
 	l.sensitivityErrors += 1
 }
 
-// this struct holds the state for the whole program
-
+// this is the main top-level structure 
+// it holds the state for the whole program
 type argoListener struct {
 	*parser.BaseArgoListener
 	stack []int
@@ -2037,88 +2037,107 @@ func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode)
 
 // build the control flow graph and data flow from the statement graph
 /* 
-assignment
-breakStmt
-continueStmt
-eos
-expression
-expressionStmt
-forStmt
-FuncExit
-functionDecl
-goStmt
-ifStmt
-incDecStmt
-returnStmt
-sendStmt
-shortVarDecl
-unaryExpr
+  assignment
+  breakStmt
+  continueStmt
+  eos
+  expression
+  expressionStmt
+  forStmt
+  FuncExit
+  functionDecl
+  goStmt
+  ifStmt
+  incDecStmt
+  returnStmt
+  sendStmt
+  shortVarDecl
+  unaryExpr
 */
 
 func (l *argoListener) getControlFlowGraph() int {
-	var funcEntryCfg, prevCfgNode *CfgNode 
+	var funcEntryCfg, currentCfgNode, prevCfgNode *CfgNode 
 	var maxNode int
 	var id int
 	
 	// for each function, start
 	maxNode = len(l.statementGraph)
 	id =0
+	
 	// walk through the list of statements 
 	for i, stmtNode := range(l.statementGraph) {
 
-		if (stmtNode.stmtType == "assignment") {
-		}
+		if (stmtNode.visited == false)  { 
+			stmtNode.visited = true
+			id, currentCfgNode = l.newCFGnode(stmtNode, 0) // create a new control flow node 
 		
-		if (stmtNode.stmtType == "breakStmt") {
+			if (stmtNode.stmtType == "assignment") {
+				currentCfgNode.cfgType = "assignment"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode 
+				// get the write variable and add it to the list of variables 
+				for _, varNode := range( stmtNode.writeVars) {
+					varNode.cfgNodes = append(varNode.cfgNodes,currentCfgNode) 
+				}
+			}
+
+
+			// find the outer statement and break to there. 
+			if (stmtNode.stmtType == "breakStmt") {
+				
+			}
+		
+			// find the outer loop and return to loop head 
+			if (stmtNode.stmtType == "continueStmt" ) {
 			
-		}
+			}
 		
-		if (stmtNode.stmtType == "continueStmt" ) {
+			if (stmtNode.stmtType == "eos" ) {
 			
-		}
+			}
 		
-		if (stmtNode.stmtType == "eos" ) {
+			if (stmtNode.stmtType == "expression" ) {
 			
-		}
+			}
 		
-		if (stmtNode.stmtType == "expression" ) {
+			if (stmtNode.stmtType == "expressionStmt") {
+			}
+		
+			if (stmtNode.stmtType == "forStmt") {
+			}
 			
-		}
+			if (stmtNode.stmtType == "FuncExit") {
+				
+			}
 		
-		if (stmtNode.stmtType == "expressionStmt") {
-		}
+			if (stmtNode.stmtType == "functionDecl" ) {
+				id, funcEntryCfg = l.newCFGnode(stmtNode, 0)
+				prevCfgNode = funcEntryCfg 
+			}
+			
+			if (stmtNode.stmtType == "goStmt") {
+			}
 		
-		if (stmtNode.stmtType == "forStmt") {
-		}
-		if (stmtNode.stmtType == "FuncExit") {
-		}
+			if (stmtNode.stmtType == "ifStmt" ) {
+			}
 		
-		if (stmtNode.stmtType == "functionDecl" ) {
-			id, funcEntryCfg = l.newCFGnode(stmtNode, 0)
-			prevCfgNode = funcEntryCfg 
-		}
+			if (stmtNode.stmtType == "incDecStmt" ) {
+			}
 		
-		if (stmtNode.stmtType == "goStmt") {
-		}
+			if (stmtNode.stmtType == "returnStmt" ) {
+			}
 		
-		if (stmtNode.stmtType == "ifStmt" ) {
-		}
+			if (stmtNode.stmtType == "sendStmt" ) {
+			}
 		
-		if (stmtNode.stmtType == "incDecStmt" ) {
-		}
-		
-		if (stmtNode.stmtType == "returnStmt" ) {
-		}
-		
-		if (stmtNode.stmtType == "sendStmt" ) {
-		}
-		
-		if (stmtNode.stmtType == "shortVarDecl" ) {
-		}
-		
-		if (stmtNode.stmtType == "unaryExpr" ) {
-		}
-		
+			if (stmtNode.stmtType == "shortVarDecl" ) {
+			}
+
+			if (stmtNode.stmtType == "unaryExpr" ) {
+			}
+
+		} // end if visited == false 
 		if (i < maxNode) {
 			
 			if (i > 200000) && (id == 0)  {
