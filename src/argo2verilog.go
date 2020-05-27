@@ -385,7 +385,8 @@ type argoListener struct {
 	varNameMap map[string]*VariableNode  // map of cannonical names to variable nodes
 	funcNodeList  []*FunctionNode     // list of functions
 	funcNameMap map[string]*FunctionNode  //  maps the names of the functions to the function node 
-	statementGraph   []*StatementNode   // list of statement nodes. 
+	statementGraph   []*StatementNode   // list of statement nodes.
+	controlFlowGraph []*CfgNode         // list of control flow nodes 
 }
 
 
@@ -2056,7 +2057,7 @@ func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode)
 */
 
 func (l *argoListener) getControlFlowGraph() int {
-	var funcEntryCfg, currentCfgNode, prevCfgNode *CfgNode 
+	var currentCfgNode, prevCfgNode *CfgNode 
 	var maxNode int
 	var id int
 	
@@ -2064,11 +2065,12 @@ func (l *argoListener) getControlFlowGraph() int {
 	maxNode = len(l.statementGraph)
 	id =0
 	
-	// walk through the list of statements 
+	// walk through the list of statements
+	prevCfgNode = nil
 	for i, stmtNode := range(l.statementGraph) {
 
 		if (stmtNode.visited == false)  { 
-			stmtNode.visited = true
+ 			stmtNode.visited = true
 			id, currentCfgNode = l.newCFGnode(stmtNode, 0) // create a new control flow node 
 		
 			if (stmtNode.stmtType == "assignment") {
@@ -2085,72 +2087,137 @@ func (l *argoListener) getControlFlowGraph() int {
 
 			// find the outer statement and break to there. 
 			if (stmtNode.stmtType == "breakStmt") {
-				
+				currentCfgNode.cfgType = "break"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode 
 			}
 		
 			// find the outer loop and return to loop head 
 			if (stmtNode.stmtType == "continueStmt" ) {
-			
+				currentCfgNode.cfgType = "continue"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode 			
 			}
 		
 			if (stmtNode.stmtType == "eos" ) {
-			
+				currentCfgNode.cfgType = "eos"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode 			
 			}
-		
+				
 			if (stmtNode.stmtType == "expression" ) {
-			
+				currentCfgNode.cfgType = "eos"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode 						
 			}
 		
 			if (stmtNode.stmtType == "expressionStmt") {
+				currentCfgNode.cfgType = "expressionStmt"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode 						
 			}
 		
 			if (stmtNode.stmtType == "forStmt") {
+				currentCfgNode.cfgType = "for"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode 						
 			}
 			
 			if (stmtNode.stmtType == "FuncExit") {
-				
+				currentCfgNode.cfgType = "funcExit"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode
 			}
 		
 			if (stmtNode.stmtType == "functionDecl" ) {
-				id, funcEntryCfg = l.newCFGnode(stmtNode, 0)
-				prevCfgNode = funcEntryCfg 
+				currentCfgNode.cfgType = "functionDecl"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode
 			}
 			
 			if (stmtNode.stmtType == "goStmt") {
+				currentCfgNode.cfgType = "goStmt"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode
 			}
 		
 			if (stmtNode.stmtType == "ifStmt" ) {
+				currentCfgNode.cfgType = "ifStmt"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode
 			}
 		
 			if (stmtNode.stmtType == "incDecStmt" ) {
+				currentCfgNode.cfgType = "incDecStmt"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode
 			}
 		
 			if (stmtNode.stmtType == "returnStmt" ) {
+				currentCfgNode.cfgType = "returnStmt"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode
 			}
 		
 			if (stmtNode.stmtType == "sendStmt" ) {
+				currentCfgNode.cfgType = "sendStmt"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode
 			}
 		
 			if (stmtNode.stmtType == "shortVarDecl" ) {
+				currentCfgNode.cfgType = "shortVarDecl"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode
 			}
 
 			if (stmtNode.stmtType == "unaryExpr" ) {
+				currentCfgNode.cfgType = "unaryExpr"
+				currentCfgNode.stmtID = stmtNode.id
+				currentCfgNode.statement = stmtNode
+				prevCfgNode = currentCfgNode
 			}
 
-		} // end if visited == false 
+		} // end if visited == false
+		prevCfgNode.successor = append(prevCfgNode.successor,currentCfgNode)
+		currentCfgNode.predecessors = append(currentCfgNode.predecessors,prevCfgNode)
+		stmtNode.visited = true
 		if (i < maxNode) {
-			
 			if (i > 200000) && (id == 0)  {
 				fmt.Printf("I is %d %s\n",i,prevCfgNode)
 			}
 		}
 	}
 	
-	
 	return 1 
 }
 
 /* ******************  Print Structures Section   ************************* */
+
+func (l *argoListener) printControlFlowGraph() {
+	// sort by id number 
+	sort.Slice(l.controlFlowGraph, func(i, j int) bool {
+		return l.controlFlowGraph[i].id < l.controlFlowGraph[j].id
+	})
+	
+	for i, node := range l.controlFlowGraph {
+		fmt.Printf("Cntl: %d: ID:%d \n ", i,node.id)
+	}
+}
 
 func printStatementList(stmts []*StatementNode) {
 	if (len(stmts) == 0) {
