@@ -2193,6 +2193,7 @@ func (l *argoListener) getControlFlowGraph() int {
 			}
 
 		} // end if visited == false
+		l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
 		prevCfgNode.successor = append(prevCfgNode.successor,currentCfgNode)
 		currentCfgNode.predecessors = append(currentCfgNode.predecessors,prevCfgNode)
 		stmtNode.visited = true
@@ -2215,7 +2216,7 @@ func (l *argoListener) printControlFlowGraph() {
 	})
 	
 	for i, node := range l.controlFlowGraph {
-		fmt.Printf("Cntl: %d: ID:%d \n ", i,node.id)
+		fmt.Printf("Cntl: %d: ID:%d %s \n ", i,node.id,node.cfgType)
 	}
 }
 
@@ -2670,11 +2671,13 @@ func main() {
 	var parsedProgram *argoListener 
 	var inputFileName_p *string
 	var printASTasGraphViz_p,printVarNames_p,printFuncNames_p,printStmtGraph_p *bool
+	var printCntlGraph_p *bool
 	
 	printASTasGraphViz_p = flag.Bool("gv",false,"print the parse tree in GraphViz format")
 	printVarNames_p = flag.Bool("vars",false,"print all variables")
 	printStmtGraph_p = flag.Bool("stmt",false,"print statement graph")
 	printFuncNames_p = flag.Bool("func",false,"print statement graph")
+	printCntlGraph_p = flag.Bool("cntl",false,"print control-flow graph")
 	inputFileName_p = flag.String("i","input.go","input file name")
 
 	flag.Parse()
@@ -2704,6 +2707,9 @@ func main() {
 	}
 
 	parsedProgram.getControlFlowGraph()  // now make the statementgraph
+	if (*printCntlGraph_p) {
+		parsedProgram.printControlFlowGraph()	
+	}
 
 	OutputVerilog(parsedProgram);
 
