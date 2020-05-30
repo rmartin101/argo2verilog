@@ -2056,6 +2056,152 @@ func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode)
   unaryExpr
 */
 
+
+// recursively return a list of control flow nodes
+// Uses the same approach as statements, this inner recursive funtion works
+// on linear lists of statements
+// inner-scoped statements and function calls call this function recursively to
+// get a new list 
+func (l *argoListener) getListOfCfgNodes(rootStmt *StatementNode, rootCfgNode *CfgNode) []*CfgNode {
+	var currentCfgNode,prevCfgNode *CfgNode // l.newCFGnode(rootStmt, 0) // create a new control flow node 
+	var retCfgList []*CfgNode
+	
+	retCfgList = make([]*CfgNode, 0)
+
+	prevCfgNode = nil
+
+
+	if (rootStmt.stmtType == "assignment") {
+		currentCfgNode.cfgType = "assignment"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode 
+		// get the write variable and add it to the list of variables 
+		for _, varNode := range( rootStmt.writeVars) {
+			varNode.cfgNodes = append(varNode.cfgNodes,currentCfgNode) 
+		}
+	}
+
+
+	// find the outer statement and break to there. 
+	if (rootStmt.stmtType == "breakStmt") {
+		currentCfgNode.cfgType = "break"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode 
+	}
+		
+	// find the outer loop and return to loop head 
+	if (rootStmt.stmtType == "continueStmt" ) {
+		currentCfgNode.cfgType = "continue"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode 			
+	}
+		
+	if (rootStmt.stmtType == "eos" ) {
+		currentCfgNode.cfgType = "eos"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode 			
+	}
+				
+	if (rootStmt.stmtType == "expression" ) {
+		currentCfgNode.cfgType = "eos"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode 						
+	}
+	
+	if (rootStmt.stmtType == "expressionStmt") {
+		currentCfgNode.cfgType = "expressionStmt"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode 						
+	}
+	
+	if (rootStmt.stmtType == "forStmt") {
+		currentCfgNode.cfgType = "for"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode 						
+	}
+	
+	if (rootStmt.stmtType == "FuncExit") {
+		currentCfgNode.cfgType = "funcExit"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode
+	}
+	
+	if (rootStmt.stmtType == "functionDecl" ) {
+		currentCfgNode.cfgType = "functionDecl"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode
+	}
+	
+	if (rootStmt.stmtType == "goStmt") {
+		currentCfgNode.cfgType = "goStmt"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode
+	}
+	
+	// create the test node and the the taken node. 
+	if (rootStmt.stmtType == "ifStmt" ) {
+		
+		currentCfgNode.cfgType = "ifTest"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		
+		// id2, ifTestCfgNode := l.newCFGnode(rootStmt, 1) // create a new control flow node
+		
+		prevCfgNode = currentCfgNode
+	}
+	
+	if (rootStmt.stmtType == "incDecStmt" ) {
+		currentCfgNode.cfgType = "incDecStmt"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode
+	}
+	
+	if (rootStmt.stmtType == "returnStmt" ) {
+		currentCfgNode.cfgType = "returnStmt"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode
+	}
+	
+	if (rootStmt.stmtType == "sendStmt" ) {
+		currentCfgNode.cfgType = "sendStmt"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode
+	}
+	
+	if (rootStmt.stmtType == "shortVarDecl" ) {
+		currentCfgNode.cfgType = "shortVarDecl"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode
+	}
+
+	if (rootStmt.stmtType == "unaryExpr" ) {
+		currentCfgNode.cfgType = "unaryExpr"
+		currentCfgNode.stmtID = rootStmt.id
+		currentCfgNode.statement = rootStmt
+		prevCfgNode = currentCfgNode
+	}
+	
+	prevCfgNode.successor = append(prevCfgNode.successor,currentCfgNode)
+	currentCfgNode.predecessors = append(currentCfgNode.predecessors,prevCfgNode)
+	
+	return retCfgList 
+}
+
+	
 func (l *argoListener) getControlFlowGraph() int {
 	var currentCfgNode, prevCfgNode *CfgNode 
 	var maxNode int
@@ -2149,11 +2295,16 @@ func (l *argoListener) getControlFlowGraph() int {
 				currentCfgNode.statement = stmtNode
 				prevCfgNode = currentCfgNode
 			}
-		
+
+			// create the test node and the the taken node. 
 			if (stmtNode.stmtType == "ifStmt" ) {
-				currentCfgNode.cfgType = "ifStmt"
+				
+				currentCfgNode.cfgType = "ifTest"
 				currentCfgNode.stmtID = stmtNode.id
 				currentCfgNode.statement = stmtNode
+				
+				// id2, ifTestCfgNode := l.newCFGnode(stmtNode, 1) // create a new control flow node
+				
 				prevCfgNode = currentCfgNode
 			}
 		
@@ -2672,17 +2823,24 @@ func main() {
 	var inputFileName_p *string
 	var printASTasGraphViz_p,printVarNames_p,printFuncNames_p,printStmtGraph_p *bool
 	var printCntlGraph_p *bool
-	
+
+	inputFileName_p = nil
 	printASTasGraphViz_p = flag.Bool("gv",false,"print the parse tree in GraphViz format")
 	printVarNames_p = flag.Bool("vars",false,"print all variables")
 	printStmtGraph_p = flag.Bool("stmt",false,"print statement graph")
 	printFuncNames_p = flag.Bool("func",false,"print statement graph")
 	printCntlGraph_p = flag.Bool("cntl",false,"print control-flow graph")
-	inputFileName_p = flag.String("i","input.go","input file name")
+	inputFileName_p = flag.String("i","","input file name")
 
 	flag.Parse()
 
-	parsedProgram = parseArgo(inputFileName_p)
+	if (*inputFileName_p == "") {
+		fmt.Printf("No input file specified, exiting \n")
+		os.Exit(-1)
+	} else { 
+		parsedProgram = parseArgo(inputFileName_p)
+	}
+
 	parsedProgram.getAllVariables()  // must call get all variables first 
 	parsedProgram.getAllFunctions()  // then get all functions 
 	
