@@ -2217,9 +2217,10 @@ func (l *argoListener) getListOfCfgNodes(rootStmt *StatementNode) []*CfgNode {
 			prevCfgNode = currentCfgNode
 		}
 
+		
 		prevCfgNode.successor = append(prevCfgNode.successor,currentCfgNode)
 		currentCfgNode.predecessors = append(currentCfgNode.predecessors,prevCfgNode)
-
+		retCfgList = append(retCfgList,currentCfgNode) 
 		//  advance to the next statement 
 		if (len(currentStmt.successors) > 0) {
 			currentStmt = currentStmt.successors[0]
