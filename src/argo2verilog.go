@@ -1524,7 +1524,7 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 					stmtTypeNode = subNode
 				}
 				
-				// create a new statement node if we have not visited the originating AST statement node
+				// create a new statement node if we have not visited the originating parse tree statement node
 				if (childnode.visited == false ){
 					stateNode = new(StatementNode)
 					stateNode.id = l.nextStatementID; l.nextStatementID++
@@ -2062,295 +2062,201 @@ func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode)
 // on linear lists of statements
 // inner-scoped statements and function calls call this function recursively to
 // get a new list 
-func (l *argoListener) getListOfCfgNodes(rootStmt *StatementNode, rootCfgNode *CfgNode) []*CfgNode {
+func (l *argoListener) getListOfCfgNodes(rootStmt *StatementNode) []*CfgNode {
+	var currentStmt *StatementNode 
 	var currentCfgNode,prevCfgNode *CfgNode // l.newCFGnode(rootStmt, 0) // create a new control flow node 
 	var retCfgList []*CfgNode
+	var keepGoing bool
 	
 	retCfgList = make([]*CfgNode, 0)
-
+	keepGoing = true
 	prevCfgNode = nil
 
-
-	if (rootStmt.stmtType == "assignment") {
-		currentCfgNode.cfgType = "assignment"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode 
-		// get the write variable and add it to the list of variables 
-		for _, varNode := range( rootStmt.writeVars) {
-			varNode.cfgNodes = append(varNode.cfgNodes,currentCfgNode) 
+	currentStmt = rootStmt
+	
+	for keepGoing == true { 
+	
+		if (currentStmt.stmtType == "assignment") {	
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 
+			currentCfgNode.cfgType = "assignment"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode 
+			// get the write variable and add it to the list of variables 
+			for _, varNode := range( currentStmt.writeVars) {
+				varNode.cfgNodes = append(varNode.cfgNodes,currentCfgNode) 
+			}
 		}
-	}
+		
 
+		// find the outer statement and break to there. 
+		if (currentStmt.stmtType == "breakStmt") {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
+			currentCfgNode.cfgType = "break"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode 
+		}
+		
+		// find the outer loop and return to loop head 
+		if (currentStmt.stmtType == "continueStmt" ) {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
+			currentCfgNode.cfgType = "continue"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode 			
+		}
 
-	// find the outer statement and break to there. 
-	if (rootStmt.stmtType == "breakStmt") {
-		currentCfgNode.cfgType = "break"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode 
-	}
+		// don't do anything 
+		if (currentStmt.stmtType == "eos" ) {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
+			currentCfgNode.cfgType = "eos"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode 			
+		}
 		
-	// find the outer loop and return to loop head 
-	if (rootStmt.stmtType == "continueStmt" ) {
-		currentCfgNode.cfgType = "continue"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode 			
-	}
+		// 
+		if (currentStmt.stmtType == "expression" ) {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
+			currentCfgNode.cfgType = "eos"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode 						
+		}
 		
-	if (rootStmt.stmtType == "eos" ) {
-		currentCfgNode.cfgType = "eos"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode 			
-	}
-				
-	if (rootStmt.stmtType == "expression" ) {
-		currentCfgNode.cfgType = "eos"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode 						
-	}
-	
-	if (rootStmt.stmtType == "expressionStmt") {
-		currentCfgNode.cfgType = "expressionStmt"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode 						
-	}
-	
-	if (rootStmt.stmtType == "forStmt") {
-		currentCfgNode.cfgType = "for"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode 						
-	}
-	
-	if (rootStmt.stmtType == "FuncExit") {
-		currentCfgNode.cfgType = "funcExit"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode
-	}
-	
-	if (rootStmt.stmtType == "functionDecl" ) {
-		currentCfgNode.cfgType = "functionDecl"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode
-	}
-	
-	if (rootStmt.stmtType == "goStmt") {
-		currentCfgNode.cfgType = "goStmt"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode
-	}
-	
-	// create the test node and the the taken node. 
-	if (rootStmt.stmtType == "ifStmt" ) {
+		if (currentStmt.stmtType == "expressionStmt") {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
+			currentCfgNode.cfgType = "expressionStmt"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode 						
+		}
 		
-		currentCfgNode.cfgType = "ifTest"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
+		if (currentStmt.stmtType == "forStmt") {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
+			currentCfgNode.cfgType = "for"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode 						
+		}
 		
-		// id2, ifTestCfgNode := l.newCFGnode(rootStmt, 1) // create a new control flow node
+		if (currentStmt.stmtType == "FuncExit") {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
+			currentCfgNode.cfgType = "funcExit"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode
+		}
 		
-		prevCfgNode = currentCfgNode
-	}
-	
-	if (rootStmt.stmtType == "incDecStmt" ) {
-		currentCfgNode.cfgType = "incDecStmt"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode
-	}
-	
-	if (rootStmt.stmtType == "returnStmt" ) {
-		currentCfgNode.cfgType = "returnStmt"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode
-	}
-	
-	if (rootStmt.stmtType == "sendStmt" ) {
-		currentCfgNode.cfgType = "sendStmt"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode
-	}
-	
-	if (rootStmt.stmtType == "shortVarDecl" ) {
-		currentCfgNode.cfgType = "shortVarDecl"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode
-	}
+		if (currentStmt.stmtType == "functionDecl" ) {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
+			currentCfgNode.cfgType = "functionDecl"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode
+		}
+		
+		if (currentStmt.stmtType == "goStmt") {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
+			currentCfgNode.cfgType = "goStmt"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode
+		}
+		
+		// create the test node and the the taken node. 
+		if (currentStmt.stmtType == "ifStmt" ) {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 						
+			currentCfgNode.cfgType = "ifTest"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			
+			// id2, ifTestCfgNode := l.newCFGnode(currentStmt, 1) // create a new control flow node
+			
+			prevCfgNode = currentCfgNode
+		}
+		
+		if (currentStmt.stmtType == "incDecStmt" ) {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
+			currentCfgNode.cfgType = "incDecStmt"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode
+		}
+		
+		if (currentStmt.stmtType == "returnStmt" ) {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
+			currentCfgNode.cfgType = "returnStmt"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode
+		}
+		
+		if (currentStmt.stmtType == "sendStmt" ) {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
+			currentCfgNode.cfgType = "sendStmt"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode
+		}
+		
+		if (currentStmt.stmtType == "shortVarDecl" ) {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "shortVarDecl"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode
+		}
+		
+		if (currentStmt.stmtType == "unaryExpr" ) {
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "unaryExpr"
+			currentCfgNode.stmtID = currentStmt.id
+			currentCfgNode.statement = currentStmt
+			prevCfgNode = currentCfgNode
+		}
 
-	if (rootStmt.stmtType == "unaryExpr" ) {
-		currentCfgNode.cfgType = "unaryExpr"
-		currentCfgNode.stmtID = rootStmt.id
-		currentCfgNode.statement = rootStmt
-		prevCfgNode = currentCfgNode
-	}
-	
-	prevCfgNode.successor = append(prevCfgNode.successor,currentCfgNode)
-	currentCfgNode.predecessors = append(currentCfgNode.predecessors,prevCfgNode)
-	
+		prevCfgNode.successor = append(prevCfgNode.successor,currentCfgNode)
+		currentCfgNode.predecessors = append(currentCfgNode.predecessors,prevCfgNode)
+
+		//  advance to the next statement 
+		if (len(currentStmt.successors) > 0) {
+			currentStmt = currentStmt.successors[0]
+			keepGoing = true 
+		} else {
+			keepGoing = false 
+		}
+
+	} // for keepgoing == true 
 	return retCfgList 
 }
 
-	
+
+// top level function to get the control flow graph
 func (l *argoListener) getControlFlowGraph() int {
-	var currentCfgNode, prevCfgNode *CfgNode 
+	var retCfgList []*CfgNode
 	var maxNode int
 	var id int
 	
 	// for each function, start
 	maxNode = len(l.statementGraph)
 	id =0
-	
-	// walk through the list of statements
-	prevCfgNode = nil
+
+	retCfgList = nil
+	// walk through the list of statements	
 	for i, stmtNode := range(l.statementGraph) {
 
 		if (stmtNode.visited == false)  { 
  			stmtNode.visited = true
-			id, currentCfgNode = l.newCFGnode(stmtNode, 0) // create a new control flow node 
-		
-			if (stmtNode.stmtType == "assignment") {
-				currentCfgNode.cfgType = "assignment"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode 
-				// get the write variable and add it to the list of variables 
-				for _, varNode := range( stmtNode.writeVars) {
-					varNode.cfgNodes = append(varNode.cfgNodes,currentCfgNode) 
-				}
-			}
-
-
-			// find the outer statement and break to there. 
-			if (stmtNode.stmtType == "breakStmt") {
-				currentCfgNode.cfgType = "break"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode 
-			}
-		
-			// find the outer loop and return to loop head 
-			if (stmtNode.stmtType == "continueStmt" ) {
-				currentCfgNode.cfgType = "continue"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode 			
-			}
-		
-			if (stmtNode.stmtType == "eos" ) {
-				currentCfgNode.cfgType = "eos"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode 			
-			}
-				
-			if (stmtNode.stmtType == "expression" ) {
-				currentCfgNode.cfgType = "eos"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode 						
-			}
-		
-			if (stmtNode.stmtType == "expressionStmt") {
-				currentCfgNode.cfgType = "expressionStmt"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode 						
-			}
-		
-			if (stmtNode.stmtType == "forStmt") {
-				currentCfgNode.cfgType = "for"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode 						
-			}
-			
-			if (stmtNode.stmtType == "FuncExit") {
-				currentCfgNode.cfgType = "funcExit"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode
-			}
-		
-			if (stmtNode.stmtType == "functionDecl" ) {
-				currentCfgNode.cfgType = "functionDecl"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode
-			}
-			
-			if (stmtNode.stmtType == "goStmt") {
-				currentCfgNode.cfgType = "goStmt"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode
-			}
-
-			// create the test node and the the taken node. 
-			if (stmtNode.stmtType == "ifStmt" ) {
-				
-				currentCfgNode.cfgType = "ifTest"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				
-				// id2, ifTestCfgNode := l.newCFGnode(stmtNode, 1) // create a new control flow node
-				
-				prevCfgNode = currentCfgNode
-			}
-		
-			if (stmtNode.stmtType == "incDecStmt" ) {
-				currentCfgNode.cfgType = "incDecStmt"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode
-			}
-		
-			if (stmtNode.stmtType == "returnStmt" ) {
-				currentCfgNode.cfgType = "returnStmt"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode
-			}
-		
-			if (stmtNode.stmtType == "sendStmt" ) {
-				currentCfgNode.cfgType = "sendStmt"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode
-			}
-		
-			if (stmtNode.stmtType == "shortVarDecl" ) {
-				currentCfgNode.cfgType = "shortVarDecl"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode
-			}
-
-			if (stmtNode.stmtType == "unaryExpr" ) {
-				currentCfgNode.cfgType = "unaryExpr"
-				currentCfgNode.stmtID = stmtNode.id
-				currentCfgNode.statement = stmtNode
-				prevCfgNode = currentCfgNode
-			}
-
+			retCfgList = l.getListOfCfgNodes(stmtNode)
+			stmtNode.visited = true
+			l.controlFlowGraph = append(l.controlFlowGraph,retCfgList...)
 		} // end if visited == false
-		l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
-		prevCfgNode.successor = append(prevCfgNode.successor,currentCfgNode)
-		currentCfgNode.predecessors = append(currentCfgNode.predecessors,prevCfgNode)
-		stmtNode.visited = true
+		
 		if (i < maxNode) {
-			if (i > 200000) && (id == 0)  {
-				fmt.Printf("I is %d %s\n",i,prevCfgNode)
+			if (i > 200000) && (id == 0)  {		
+				fmt.Printf("I is %d \n",i)
 			}
 		}
 	}
@@ -2780,7 +2686,7 @@ func parseArgo(fname *string) *argoListener {
 	listener.recog = p
 	progLines, err2 := getFileLines(*fname)
 	if (err2 != nil) {
-		fmt.Printf("Whoaa! didn't program lines")
+		fmt.Printf("Whoaa! Didn't get any program lines\n")
 		
 	}
 	listener.ProgramLines = progLines
@@ -2864,8 +2770,8 @@ func main() {
 		parsedProgram.printStatementGraph()	
 	}
 
-	parsedProgram.getControlFlowGraph()  // now make the statementgraph
 	if (*printCntlGraph_p) {
+		parsedProgram.getControlFlowGraph()  // now make the statementgraph
 		parsedProgram.printControlFlowGraph()	
 	}
 
