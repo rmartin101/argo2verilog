@@ -222,14 +222,15 @@ type CfgNode struct {
 	stmtID    int                    // ID number of the statement node 
 	sourceRow      int               // row in the source code
 	sourceCol      int               // column in the source code
-	successor []*CfgNode           // if the 
-        successors_else []*CfgNode       // for NEXT and IF statements - following statement if the condition is false 
-	predecessors []*CfgNode          // for NEXT and IF statements - following statement if the condition is true 
-        predecessors_else []*CfgNode     // taken ifs  could come before this one
+	successors []*CfgNode             // successive statement
+        successors_taken []*CfgNode      // for For and if statements - following statement if the condition is false 
+	predecessors []*CfgNode          // nodes that could come before this one
+        predecessors_taken []*CfgNode     // taken ifs that could come before this one
         call_target   *CfgNode           // for a return, the possible gosub sources 
         returnTargets []*CfgNode         // for a return, the possible nodes to return to 
         readVars [] *VariableNode        // variables read by the node 
-        writeVars [] *VariableNode       // vartiable written by the node 
+        writeVars [] *VariableNode       // vartiable written by the node
+	verilog   []* string              // the verilog to output 
         visited bool                     // for graph traversal, if visited or not
 }
 
@@ -2065,7 +2066,7 @@ func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode)
 func (l *argoListener) getListOfCfgNodes(rootStmt *StatementNode) []*CfgNode {
 	var currentStmt *StatementNode 
 	var currentCfgNode,prevCfgNode *CfgNode // l.newCFGnode(rootStmt, 0) // create a new control flow node 
-	var retCfgList []*CfgNode
+	var retCfgList,localList1,localList2 []*CfgNode
 	var keepGoing bool
 	
 	retCfgList = make([]*CfgNode, 0)
@@ -2073,9 +2074,17 @@ func (l *argoListener) getListOfCfgNodes(rootStmt *StatementNode) []*CfgNode {
 	prevCfgNode = nil
 
 	currentStmt = rootStmt
-	
+
+	// proceeded linearly down the sequence of statements 
 	for keepGoing == true { 
-	
+
+		if (currentStmt.visited == true) {
+			keepGoing = false
+			continue; 
+		}
+
+		currentStmt.visited = true
+		
 		if (currentStmt.stmtType == "assignment") {	
 			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 
 			currentCfgNode.cfgType = "assignment"
@@ -2167,14 +2176,21 @@ func (l *argoListener) getListOfCfgNodes(rootStmt *StatementNode) []*CfgNode {
 		
 		// create the test node and the the taken node. 
 		if (currentStmt.stmtType == "ifStmt" ) {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 						
-			currentCfgNode.cfgType = "ifTest"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			
-			// id2, ifTestCfgNode := l.newCFGnode(currentStmt, 1) // create a new control flow node
-			
-			prevCfgNode = currentCfgNode
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType="ifStmt"
+			localList1 = l.getListOfCfgNodes(currentStmt.ifTaken)
+			// if there is an else statement, then get the list 
+			if (currentStmt.ifElse != nil ) {
+				localList2 = l.getListOfCfgNodes(currentStmt.ifElse)
+			}
+			currentCfgNode.successors_taken = append(currentCfgNode.successors_taken,localList1...)
+			currentCfgNode.successors = append(currentCfgNode.successors,localList2...)
+			// append the else branch to the list of successors
+			if (len(currentCfgNode.successors) > 0 ) {
+				prevCfgNode = currentCfgNode.successors[len(currentCfgNode.successors)-1]
+			} else {
+				prevCfgNode = currentCfgNode
+			}
 		}
 		
 		if (currentStmt.stmtType == "incDecStmt" ) {
@@ -2217,10 +2233,11 @@ func (l *argoListener) getListOfCfgNodes(rootStmt *StatementNode) []*CfgNode {
 			prevCfgNode = currentCfgNode
 		}
 
-		
-		prevCfgNode.successor = append(prevCfgNode.successor,currentCfgNode)
+		prevCfgNode.successors = append(prevCfgNode.successors,currentCfgNode)
 		currentCfgNode.predecessors = append(currentCfgNode.predecessors,prevCfgNode)
-		retCfgList = append(retCfgList,currentCfgNode) 
+		retCfgList = append(retCfgList,currentCfgNode)
+
+		
 		//  advance to the next statement 
 		if (len(currentStmt.successors) > 0) {
 			currentStmt = currentStmt.successors[0]
@@ -2249,9 +2266,7 @@ func (l *argoListener) getControlFlowGraph() int {
 	for i, stmtNode := range(l.statementGraph) {
 
 		if (stmtNode.visited == false)  { 
- 			stmtNode.visited = true
 			retCfgList = l.getListOfCfgNodes(stmtNode)
-			stmtNode.visited = true
 			l.controlFlowGraph = append(l.controlFlowGraph,retCfgList...)
 		} // end if visited == false
 		
@@ -2274,7 +2289,7 @@ func (l *argoListener) printControlFlowGraph() {
 	})
 	
 	for i, node := range l.controlFlowGraph {
-		fmt.Printf("Cntl: %d: ID:%d %s \n ", i,node.id,node.cfgType)
+		fmt.Printf("Cntl: %d: ID:%d :%s: %s \n", i,node.id,node.cannName,node.cfgType)
 	}
 }
 
