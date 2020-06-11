@@ -199,7 +199,7 @@ type StatementNode struct {
 	childID       int            // Child ID for this block 
 	ifSimple *StatementNode     // The enclosed block of sub-statements for the else clause
 	ifTest   *StatementNode     // The test expression 
-	ifTaken  *StatementNode     // The enclosed block of sub-statements for the taken part of an if
+	ifTaken  *StatementNode     // The enclosed block of sub-statements for the taken xpart of an if
 	ifElse   *StatementNode     // The enclosed block of sub-statements for the else clause
 	forInit *StatementNode        // the for pre-statement 
 	forCond   *StatementNode     // the for test expression
@@ -208,12 +208,15 @@ type StatementNode struct {
 	caseList   [][]*StatementNode  // list of statements for a switch or select statement
 	callTargets []*StatementNode     // regular caller target statement (funcDecl) 
 	goTargets   []*StatementNode     // target of go statemetn (funcDecl)
-	returnTargets []*StatementNode  // list of return targets 
+	returnTargets []*StatementNode  // list of return targets
+	cfgNodes    []*CfgNode          // list of control flow graph nodes for this statement 
 	visited        bool             // flag for if this node is visited
 }
 
-// hold the control flow graph. Each control flow node represents 
-// a bit in the verilog used to generate the bitmapped based CFG in the HDL 
+// hold the control flow graph. Each control flow node is a verilog always block
+// The control bits are edges into or out of the node. The bits are checked as conditions
+// needed to enter or bits are set on exit
+
 type CfgNode struct {
         id int                           // the integer ID of this node
 	cfgType string                   // the type of this node. assignment, test, call, return
@@ -229,7 +232,7 @@ type CfgNode struct {
         call_target   *CfgNode           // for a return, the possible gosub sources 
         returnTargets []*CfgNode         // for a return, the possible nodes to return to 
         readVars [] *VariableNode        // variables read by the node 
-        writeVars [] *VariableNode       // vartiable written by the node
+        writeVars [] *VariableNode       // vartiable written by the node 
 	verilog   []* string              // the verilog to output 
         visited bool                     // for graph traversal, if visited or not
 }
@@ -1886,7 +1889,7 @@ func (l *argoListener) getStatementGraph() int {
 	var funcEOS  *ParseNode // exit node of the function 
 	var funcStr  string   //  string name of the function
 	
-	var entryNode,exitNode *StatementNode // function declation is the entry node in the graph
+	var startNode, entryNode,exitNode *StatementNode // function declation is the entry node in the graph
 	var statements []*StatementNode // list of statement nodes
 
 	
@@ -1901,6 +1904,24 @@ func (l *argoListener) getStatementGraph() int {
 		fmt.Printf("Error! first AST node not a SourceFile\n")
 		return 0 
 	}
+
+
+	// the start node is a special root node to begin the execution of the
+	// system. We look for main() function which is the successor of the start statement node
+	startNode = new(StatementNode)
+	startNode.id = l.nextStatementID; l.nextStatementID++
+	startNode.parseDef = nil
+	startNode.parseDefID =  0
+	startNode.parseSubDef = nil 
+	startNode.parseSubDefID =  0
+	startNode.stmtType = "startNode"
+	startNode.funcName = "__start__"
+	startNode.sourceRow =  0
+	startNode.sourceCol =  0
+	startNode.parent = nil
+	startNode.parentID = -1
+	l.statementGraph = append(l.statementGraph,startNode)
+	
 	// for each function in the source file, parse the linear list of statements 
 	for i, childNode := range sourceFile.children {
 
@@ -1955,6 +1976,17 @@ func (l *argoListener) getStatementGraph() int {
 				statements = make([]*StatementNode,1)
 				statements = l.getListOfStatements(stmtListNode,entryNode,funcDecl)
 
+
+				// if this is the main function, make the predicessor the startNode and
+				// the successor of the start node the main() definition
+				if (funcStr == "main") {
+					startNode.child = entryNode
+					startNode.childID = entryNode.id
+					entryNode.parent = startNode
+					startNode.addStmtSuccessor(entryNode)
+					entryNode.addStmtPredecessor(startNode)
+				}
+				
 				exitNode = new(StatementNode)
 				exitNode.id = l.nextStatementID; l.nextStatementID++
 				exitNode.parseDef = funcEOS
@@ -2032,8 +2064,11 @@ func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode)
 	l.nextCfgID++
 	node = new(CfgNode)
 	node.cannName = "c_bit_" + strconv.Itoa(stmt.sourceRow) + "_" + strconv.Itoa(stmt.sourceCol) +
-		strconv.Itoa(subID)
+		strconv.Itoa(subID) 
 	node.id = id
+	node.statement = stmt
+	node.stmtID = stmt.id
+	stmt.cfgNodes = append(stmt.cfgNodes,node)
 	return id,node
 }
 
@@ -2058,39 +2093,32 @@ func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode)
 */
 
 
-// recursively return a list of control flow nodes
-// Uses the same approach as statements, this inner recursive funtion works
-// on linear lists of statements
-// inner-scoped statements and function calls call this function recursively to
-// get a new list 
-func (l *argoListener) getListOfCfgNodes(rootStmt *StatementNode) []*CfgNode {
+// create the list of control nodes
+// The approach is to create control flow graph nodes 1-to-1 with statement nodes
+// and then add/remove edges
+
+func (l *argoListener) forwardCfgPass() {
 	var currentStmt *StatementNode 
-	var currentCfgNode,prevCfgNode *CfgNode // l.newCFGnode(rootStmt, 0) // create a new control flow node 
-	var retCfgList,localList1,localList2 []*CfgNode
-	var keepGoing bool
+	var currentCfgNode *CfgNode // l.newCFGnode(rootStmt, 0) // create a new control flow node 
+
+	// iniital loop creates a CFG node for every statementnode
+	for _, currentStmt = range(l.statementGraph) {
+		_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+		l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+	}
 	
-	retCfgList = make([]*CfgNode, 0)
-	keepGoing = true
-	prevCfgNode = nil
-
-	currentStmt = rootStmt
-
-	// proceeded linearly down the sequence of statements 
-	for keepGoing == true { 
-
-		if (currentStmt.visited == true) {
-			keepGoing = false
-			continue; 
-		}
-
-		currentStmt.visited = true
+	// proceeded linearly down the sequence of statements
+	// and create all needed statement nodes 
+	for _, currentStmt = range(l.statementGraph) {
 		
+		if (len(currentStmt.cfgNodes) == 0) {
+			fmt.Printf("Error! no control node for statement node %d \n",currentStmt.id)
+			continue 
+		}
+		
+		currentCfgNode = currentStmt.cfgNodes[0]
 		if (currentStmt.stmtType == "assignment") {	
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 
 			currentCfgNode.cfgType = "assignment"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode 
 			// get the write variable and add it to the list of variables 
 			for _, varNode := range( currentStmt.writeVars) {
 				varNode.cfgNodes = append(varNode.cfgNodes,currentCfgNode) 
@@ -2098,156 +2126,87 @@ func (l *argoListener) getListOfCfgNodes(rootStmt *StatementNode) []*CfgNode {
 		}
 		
 
-		// find the outer statement and break to there. 
+		// find the outer statement and break to there.
+		// look for the parent for statement
+		// FIXME: what if the parent has multiple sucessors? 
 		if (currentStmt.stmtType == "breakStmt") {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
 			currentCfgNode.cfgType = "break"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode 
+			parentStmt := currentStmt.parent
+			parentSuccessor := parentStmt.successors[0]
+			targetSuccessor  := parentSuccessor.cfgNodes[0]
+			currentCfgNode.successors = append(currentCfgNode.successors,targetSuccessor)
 		}
 		
-		// find the outer loop and return to loop head 
+		// find the outer loop and return to loop head
+		// continues go to the parent for statement 
 		if (currentStmt.stmtType == "continueStmt" ) {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
 			currentCfgNode.cfgType = "continue"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode 			
+			parentStmt := currentStmt.parent
+			targetSuccessor  := parentStmt.cfgNodes[0]
+			currentCfgNode.successors = append(currentCfgNode.successors,targetSuccessor)
 		}
 
 		// don't do anything 
 		if (currentStmt.stmtType == "eos" ) {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
 			currentCfgNode.cfgType = "eos"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode 			
+			if (len(currentStmt.successors) > 0) {
+				
+			} else {
+				
+			}
 		}
 		
 		// 
 		if (currentStmt.stmtType == "expression" ) {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
-			currentCfgNode.cfgType = "eos"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode 						
+			currentCfgNode.cfgType = "expression"
+
 		}
 		
 		if (currentStmt.stmtType == "expressionStmt") {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
 			currentCfgNode.cfgType = "expressionStmt"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode 						
 		}
 		
 		if (currentStmt.stmtType == "forStmt") {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
 			currentCfgNode.cfgType = "for"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode 						
 		}
 		
 		if (currentStmt.stmtType == "FuncExit") {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
 			currentCfgNode.cfgType = "funcExit"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode
 		}
 		
 		if (currentStmt.stmtType == "functionDecl" ) {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
 			currentCfgNode.cfgType = "functionDecl"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode
 		}
 		
 		if (currentStmt.stmtType == "goStmt") {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
 			currentCfgNode.cfgType = "goStmt"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode
 		}
-		
-		// create the test node and the the taken node. 
-		if (currentStmt.stmtType == "ifStmt" ) {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
-			currentCfgNode.cfgType="ifStmt"
-			localList1 = l.getListOfCfgNodes(currentStmt.ifTaken)
-			// if there is an else statement, then get the list 
-			if (currentStmt.ifElse != nil ) {
-				localList2 = l.getListOfCfgNodes(currentStmt.ifElse)
-			}
-			currentCfgNode.successors_taken = append(currentCfgNode.successors_taken,localList1...)
-			currentCfgNode.successors = append(currentCfgNode.successors,localList2...)
-			// append the else branch to the list of successors
-			if (len(currentCfgNode.successors) > 0 ) {
-				prevCfgNode = currentCfgNode.successors[len(currentCfgNode.successors)-1]
-			} else {
-				prevCfgNode = currentCfgNode
-			}
-		}
-		
+
+		if (currentStmt.stmtType == "ifStmt") {
+			// create the test node and the the taken node.
+			currentCfgNode.cfgType = "ifStmt"
+		}		
 		if (currentStmt.stmtType == "incDecStmt" ) {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
 			currentCfgNode.cfgType = "incDecStmt"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode
 		}
 		
 		if (currentStmt.stmtType == "returnStmt" ) {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
 			currentCfgNode.cfgType = "returnStmt"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode
 		}
 		
 		if (currentStmt.stmtType == "sendStmt" ) {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0) 			
 			currentCfgNode.cfgType = "sendStmt"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode
 		}
 		
 		if (currentStmt.stmtType == "shortVarDecl" ) {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
 			currentCfgNode.cfgType = "shortVarDecl"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode
 		}
 		
 		if (currentStmt.stmtType == "unaryExpr" ) {
-			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
 			currentCfgNode.cfgType = "unaryExpr"
-			currentCfgNode.stmtID = currentStmt.id
-			currentCfgNode.statement = currentStmt
-			prevCfgNode = currentCfgNode
 		}
 
-		prevCfgNode.successors = append(prevCfgNode.successors,currentCfgNode)
-		currentCfgNode.predecessors = append(currentCfgNode.predecessors,prevCfgNode)
-		retCfgList = append(retCfgList,currentCfgNode)
-
-		
-		//  advance to the next statement 
-		if (len(currentStmt.successors) > 0) {
-			currentStmt = currentStmt.successors[0]
-			keepGoing = true 
-		} else {
-			keepGoing = false 
-		}
-
-	} // for keepgoing == true 
-	return retCfgList 
+	}
 }
 
 
@@ -2262,19 +2221,17 @@ func (l *argoListener) getControlFlowGraph() int {
 	id =0
 
 	retCfgList = nil
-	// walk through the list of statements	
+	// create a control flow graph node for every statement node 
 	for i, stmtNode := range(l.statementGraph) {
-
 		if (stmtNode.visited == false)  { 
-			retCfgList = l.getListOfCfgNodes(stmtNode)
 			l.controlFlowGraph = append(l.controlFlowGraph,retCfgList...)
 		} // end if visited == false
-		
 		if (i < maxNode) {
 			if (i > 200000) && (id == 0)  {		
 				fmt.Printf("I is %d \n",i)
 			}
 		}
+		
 	}
 	
 	return 1 
@@ -2289,8 +2246,32 @@ func (l *argoListener) printControlFlowGraph() {
 	})
 	
 	for i, node := range l.controlFlowGraph {
-		fmt.Printf("Cntl: %d: ID:%d :%s: %s \n", i,node.id,node.cannName,node.cfgType)
+		fmt.Printf("Cntl: %d: ID:%d :%s: %s succ: ", i,node.id,node.cannName,node.cfgType)
+
+		for _,s:= range node.successors { 
+			fmt.Printf("%d ",s.id)
+		}
+
+		fmt.Printf(" s_taken: ")
+
+		for _,st := range node.successors_taken { 
+			fmt.Printf("%d ",st.id)
+		}
+
+		fmt.Printf(" pred: ")
+		
+		for _,p := range node.predecessors { 
+			fmt.Printf("%d ",p.id)
+		}
+
+		for _,pt := range node.predecessors_taken { 
+			fmt.Printf("%d ",pt.id)
+		}
+		
+		
+		fmt.Printf("\n")		
 	}
+
 }
 
 func printStatementList(stmts []*StatementNode) {
@@ -2743,16 +2724,17 @@ func parseArgo(fname *string) *argoListener {
 func main() {
 	var parsedProgram *argoListener 
 	var inputFileName_p *string
-	var printASTasGraphViz_p,printVarNames_p,printFuncNames_p,printStmtGraph_p *bool
+	var printASTasGraphViz_p,printASTasText_p,printVarNames_p,printFuncNames_p,printStmtGraph_p *bool
 	var printCntlGraph_p *bool
 
 	inputFileName_p = nil
 	printASTasGraphViz_p = flag.Bool("gv",false,"print the parse tree in GraphViz format")
+	printASTasText_p = flag.Bool("ast",false,"print the parse tree in text format")	
 	printVarNames_p = flag.Bool("vars",false,"print all variables")
-	printStmtGraph_p = flag.Bool("stmt",false,"print statement graph")
-	printFuncNames_p = flag.Bool("func",false,"print statement graph")
-	printCntlGraph_p = flag.Bool("cntl",false,"print control-flow graph")
-	inputFileName_p = flag.String("i","","input file name")
+	printStmtGraph_p = flag.Bool("stmt",false,"print the statement graph")
+	printFuncNames_p = flag.Bool("func",false,"print all functions")
+	printCntlGraph_p = flag.Bool("cntl",false,"print the control-flow graph")
+	inputFileName_p = flag.String("i","","the input file name")
 
 	flag.Parse()
 
@@ -2767,10 +2749,13 @@ func main() {
 	parsedProgram.getAllFunctions()  // then get all functions 
 	
 	if (*printASTasGraphViz_p) {
-		parsedProgram.printParseTreeNodes("rawWithText")
-		//parsedProgram.printParseTreeNodes("dotShort")
+		parsedProgram.printParseTreeNodes("dotShort")
 	}
 
+	if (*printASTasText_p) {
+		parsedProgram.printParseTreeNodes("rawWithText")
+	}
+	
 	if (*printVarNames_p) {
 		parsedProgram.printVarNodes()
 		

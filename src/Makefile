@@ -16,3 +16,8 @@ clean:
 
 run:
 	./argo2verilog -gv -i ../test/channel01.go
+
+
+
+
+

@@ -6,7 +6,7 @@ import ( "fmt" ) ;
 
 
 func blammo(i,j int) int {
-	if (i <= j) {
+	if(i <= j) {
 		return i*j ;
 	} ;
 	return i+j ;
