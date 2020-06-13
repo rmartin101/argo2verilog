@@ -97,7 +97,7 @@ func assert(test bool, message string, location string, stackTrace bool) {
 // get the file name and line number of the file of this source code for
 // error reporting 
 func _file_line_() string {
-    _, fileName, fileLine, ok := runtime.Caller(1)
+    _, fileName, fileLine, ok := runtime.Caller(1)  // get the file,line of previous stack frame 
     var s string
     if ok {
         s = fmt.Sprintf("%s:%d", fileName, fileLine)
@@ -2063,13 +2063,35 @@ func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode)
 	id = l.nextCfgID
 	l.nextCfgID++
 	node = new(CfgNode)
-	node.cannName = "c_bit_" + strconv.Itoa(stmt.sourceRow) + "_" + strconv.Itoa(stmt.sourceCol) +
+	node.cannName = "c_bit_" + strconv.Itoa(stmt.sourceRow) + "_" + strconv.Itoa(stmt.sourceCol) + "_" +
 		strconv.Itoa(subID) 
 	node.id = id
 	node.statement = stmt
 	node.stmtID = stmt.id
 	stmt.cfgNodes = append(stmt.cfgNodes,node)
 	return id,node
+}
+
+
+// Add a statements predecessor and successor cfg node to a cfg node 
+// This is the normal linear case, where we have a linear sequence
+// add the control flow node from the next statement to the CFG
+// That is, appened the next cfg node to the first arg from
+// the statement
+// FIXME: add return error code
+func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
+
+	if (len(stmt.successors) > 0) {
+		nextStmt := stmt.successors[0]
+		if (len(nextStmt.cfgNodes) >0 ) {
+			cnode.successors = append(cnode.successors,nextStmt.cfgNodes...)
+			nextStmt.cfgNodes[0].predecessors = append(nextStmt.cfgNodes[0].predecessors,cnode)
+		} else {
+			fmt.Printf("Error at %s no successor for successor stmt node %d \n",_file_line_(),nextStmt.id)
+		}
+	} else {
+		fmt.Printf("Error at %s no successor for statement node %d \n",_file_line_(),stmt.id)
+	}
 }
 
 // build the control flow graph and data flow from the statement graph
@@ -2097,9 +2119,11 @@ func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode)
 // The approach is to create control flow graph nodes 1-to-1 with statement nodes
 // and then add/remove edges
 
+
+
 func (l *argoListener) forwardCfgPass() {
 	var currentStmt *StatementNode 
-	var currentCfgNode *CfgNode // l.newCFGnode(rootStmt, 0) // create a new control flow node 
+	var currentCfgNode *CfgNode 
 
 	// iniital loop creates a CFG node for every statementnode
 	for _, currentStmt = range(l.statementGraph) {
@@ -2108,21 +2132,24 @@ func (l *argoListener) forwardCfgPass() {
 	}
 	
 	// proceeded linearly down the sequence of statements
-	// and create all needed statement nodes 
+	// and create all needed
 	for _, currentStmt = range(l.statementGraph) {
-		
-		if (len(currentStmt.cfgNodes) == 0) {
-			fmt.Printf("Error! no control node for statement node %d \n",currentStmt.id)
+
+		// At this point in the forward pass there should only by single cfg node 
+		if (len(currentStmt.cfgNodes) != 1) {
+			fmt.Printf("Error at %s no control node for statement node %d \n",_file_line_(),currentStmt.id)
 			continue 
 		}
-		
+
 		currentCfgNode = currentStmt.cfgNodes[0]
 		if (currentStmt.stmtType == "assignment") {	
 			currentCfgNode.cfgType = "assignment"
+			addLinearToCfg(currentCfgNode,currentStmt)
 			// get the write variable and add it to the list of variables 
 			for _, varNode := range( currentStmt.writeVars) {
 				varNode.cfgNodes = append(varNode.cfgNodes,currentCfgNode) 
 			}
+			
 		}
 		
 
@@ -2149,21 +2176,18 @@ func (l *argoListener) forwardCfgPass() {
 		// don't do anything 
 		if (currentStmt.stmtType == "eos" ) {
 			currentCfgNode.cfgType = "eos"
-			if (len(currentStmt.successors) > 0) {
-				
-			} else {
-				
-			}
+			addLinearToCfg(currentCfgNode,currentStmt)
 		}
 		
 		// 
 		if (currentStmt.stmtType == "expression" ) {
 			currentCfgNode.cfgType = "expression"
-
+			addLinearToCfg(currentCfgNode,currentStmt)
 		}
 		
 		if (currentStmt.stmtType == "expressionStmt") {
 			currentCfgNode.cfgType = "expressionStmt"
+			addLinearToCfg(currentCfgNode,currentStmt)
 		}
 		
 		if (currentStmt.stmtType == "forStmt") {
@@ -2176,6 +2200,7 @@ func (l *argoListener) forwardCfgPass() {
 		
 		if (currentStmt.stmtType == "functionDecl" ) {
 			currentCfgNode.cfgType = "functionDecl"
+			addLinearToCfg(currentCfgNode,currentStmt)
 		}
 		
 		if (currentStmt.stmtType == "goStmt") {
@@ -2188,6 +2213,7 @@ func (l *argoListener) forwardCfgPass() {
 		}		
 		if (currentStmt.stmtType == "incDecStmt" ) {
 			currentCfgNode.cfgType = "incDecStmt"
+			addLinearToCfg(currentCfgNode,currentStmt)
 		}
 		
 		if (currentStmt.stmtType == "returnStmt" ) {
@@ -2196,14 +2222,17 @@ func (l *argoListener) forwardCfgPass() {
 		
 		if (currentStmt.stmtType == "sendStmt" ) {
 			currentCfgNode.cfgType = "sendStmt"
+			addLinearToCfg(currentCfgNode,currentStmt)
 		}
 		
 		if (currentStmt.stmtType == "shortVarDecl" ) {
 			currentCfgNode.cfgType = "shortVarDecl"
+			addLinearToCfg(currentCfgNode,currentStmt)
 		}
 		
 		if (currentStmt.stmtType == "unaryExpr" ) {
 			currentCfgNode.cfgType = "unaryExpr"
+			addLinearToCfg(currentCfgNode,currentStmt)
 		}
 
 	}
@@ -2212,28 +2241,11 @@ func (l *argoListener) forwardCfgPass() {
 
 // top level function to get the control flow graph
 func (l *argoListener) getControlFlowGraph() int {
-	var retCfgList []*CfgNode
-	var maxNode int
-	var id int
-	
-	// for each function, start
-	maxNode = len(l.statementGraph)
-	id =0
 
-	retCfgList = nil
-	// create a control flow graph node for every statement node 
-	for i, stmtNode := range(l.statementGraph) {
-		if (stmtNode.visited == false)  { 
-			l.controlFlowGraph = append(l.controlFlowGraph,retCfgList...)
-		} // end if visited == false
-		if (i < maxNode) {
-			if (i > 200000) && (id == 0)  {		
-				fmt.Printf("I is %d \n",i)
-			}
-		}
-		
-	}
-	
+	// call the forward pass on the control-flow graph 
+	l.forwardCfgPass()
+	// fix backward edges 
+	// remove useless nodes
 	return 1 
 }
 
