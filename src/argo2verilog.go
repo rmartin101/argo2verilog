@@ -2080,18 +2080,25 @@ func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode)
 // the statement
 // FIXME: add return error code
 func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
-
-	if (len(stmt.successors) > 0) {
-		nextStmt := stmt.successors[0]
-		if (len(nextStmt.cfgNodes) >0 ) {
-			cnode.successors = append(cnode.successors,nextStmt.cfgNodes...)
-			nextStmt.cfgNodes[0].predecessors = append(nextStmt.cfgNodes[0].predecessors,cnode)
-		} else {
-			fmt.Printf("Error at %s no successor for successor stmt node %d \n",_file_line_(),nextStmt.id)
-		}
+	var nextStmt *StatementNode
+	
+	// the child statement is the next logical statement in the graph
+	
+	if (stmt.child != nil) && (stmt.childID > 0) {
+		nextStmt = stmt.child
+	} else if (len(stmt.successors) > 0) {
+		nextStmt = stmt.successors[0]
 	} else {
-		fmt.Printf("Error at %s no successor for statement node %d \n",_file_line_(),stmt.id)
+		fmt.Printf("Error at %s no successor for statement node %d \n",_file_line_(),stmt.id)		
 	}
+	
+	if ( len(nextStmt.cfgNodes) >0 ) {
+		cnode.successors = append(cnode.successors,nextStmt.cfgNodes...)
+		nextStmt.cfgNodes[0].predecessors = append(nextStmt.cfgNodes[0].predecessors,cnode)
+	} else {
+		fmt.Printf("Error at %s no successor for successor stmt node %d \n",_file_line_(),nextStmt.id)
+	}
+
 }
 
 // build the control flow graph and data flow from the statement graph
@@ -2173,10 +2180,32 @@ func (l *argoListener) forwardCfgPass() {
 			currentCfgNode.successors = append(currentCfgNode.successors,targetSuccessor)
 		}
 
-		// don't do anything 
+		// and end-of-statement is the end of a code block, i.e., a { ... }
+		// we set the successor edge to the successor of the parent node 
 		if (currentStmt.stmtType == "eos" ) {
+			var nextStmt,parentStmt *StatementNode
+			
 			currentCfgNode.cfgType = "eos"
-			addLinearToCfg(currentCfgNode,currentStmt)
+			parentStmt = currentStmt.parent
+			
+			if (parentStmt.child != nil) && (currentStmt.childID > 0) {
+				nextStmt = currentStmt.child
+			} else if (len(currentStmt.successors) > 0) {
+				nextStmt = currentStmt.successors[0]
+			} else {
+				fmt.Printf("Error at %s no successor for statement node %d \n",_file_line_(),parentStmt.id)		
+			}
+
+
+			if ( len(nextStmt.cfgNodes) > 0 ) {
+				currentCfgNode.successors = append(currentCfgNode.successors,nextStmt.cfgNodes...)
+			} else {
+				fmt.Printf("Error at %s no successor for successor stmt node %d \n",_file_line_(),nextStmt.id)
+			}
+
+			nextStmt.cfgNodes[0].predecessors = append(nextStmt.cfgNodes[0].predecessors,currentCfgNode)
+
+
 		}
 		
 		// 
@@ -2720,7 +2749,7 @@ func parseArgo(fname *string) *argoListener {
 		os.Exit(-1)
 	}
 
-	listener.logIt.DbgLog("MIN","testing the log %d %d %d \n",5,10,20)
+	//listener.logIt.DbgLog("MIN","testing the log %d %d %d \n",5,10,20)
 	
 	// Finally parse the expression (by walking the tree)
 	antlr.ParseTreeWalkerDefault.Walk(listener, p.SourceFile())
@@ -2736,16 +2765,17 @@ func parseArgo(fname *string) *argoListener {
 func main() {
 	var parsedProgram *argoListener 
 	var inputFileName_p *string
-	var printASTasGraphViz_p,printASTasText_p,printVarNames_p,printFuncNames_p,printStmtGraph_p *bool
+	var printASTasGraphViz_p,printASTasText_p,printVarNames_p,printFuncNames_p,printStmtGraph_p,parseCheck_p *bool
 	var printCntlGraph_p *bool
 
 	inputFileName_p = nil
 	printASTasGraphViz_p = flag.Bool("gv",false,"print the parse tree in GraphViz format")
-	printASTasText_p = flag.Bool("ast",false,"print the parse tree in text format")	
+	printASTasText_p = flag.Bool("parse",false,"print the parse tree in text format")	
 	printVarNames_p = flag.Bool("vars",false,"print all variables")
 	printStmtGraph_p = flag.Bool("stmt",false,"print the statement graph")
 	printFuncNames_p = flag.Bool("func",false,"print all functions")
 	printCntlGraph_p = flag.Bool("cntl",false,"print the control-flow graph")
+	parseCheck_p     = flag.Bool("check",false,"check for correct syntax ")
 	inputFileName_p = flag.String("i","","the input file name")
 
 	flag.Parse()
@@ -2788,6 +2818,9 @@ func main() {
 		parsedProgram.printControlFlowGraph()	
 	}
 
-	OutputVerilog(parsedProgram);
-
+	if (*parseCheck_p) {
+		fmt.Printf("parse check completed \n")
+	} else { 
+		OutputVerilog(parsedProgram);
+	}
 }
