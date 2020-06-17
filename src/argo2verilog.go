@@ -8,7 +8,7 @@
 
     This program is distributed WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License Version 3 for more details.
+    GNU General Public License Version 3 for more details.t
 
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>
@@ -1678,6 +1678,8 @@ func (l *argoListener) addInternalReturnEdges() {
 			if (functionExit != nil) {
 				stmtNode.setStmtSuccNil()
 				stmtNode.addStmtSuccessor(functionExit)
+				// make sure the function exit gets the return node as a predecessors
+				functionExit.addStmtPredecessor(stmtNode)
 			}else {
 				fmt.Printf("Error! return edges called with mil function parent %s\n", _file_line_())
 			}
@@ -1997,8 +1999,8 @@ func (l *argoListener) getStatementGraph() int {
 				exitNode.funcName = funcStr
 				exitNode.sourceRow =  funcEOS.sourceLineStart 
 				exitNode.sourceCol =  funcEOS.sourceColStart
-				exitNode.parent = nil
-				exitNode.parentID = -1
+				exitNode.parent = entryNode
+				exitNode.parentID = entryNode.id
 				exitNode.child = nil
 				exitNode.childID = -1				
 				// add this to the global list of statements 
@@ -2006,8 +2008,9 @@ func (l *argoListener) getStatementGraph() int {
 
 				// fix the predecessor/successor edges 
 				entryNode.addStmtSuccessor(exitNode)
-				exitNode.addStmtPredecessor(entryNode)
-
+				// note the predecessor of an exit nodes are the return statements
+				// exitNode.addStmtPredecessor(entryNode)
+				
 				// set the edges from the entry point to this list
 				
 
@@ -2083,13 +2086,16 @@ func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
 	var nextStmt *StatementNode
 	
 	// the child statement is the next logical statement in the graph
-	
+	nextStmt = nil
 	if (stmt.child != nil) && (stmt.childID > 0) {
 		nextStmt = stmt.child
 	} else if (len(stmt.successors) > 0) {
 		nextStmt = stmt.successors[0]
-	} else {
-		fmt.Printf("Error at %s no successor for statement node %d \n",_file_line_(),stmt.id)		
+	}
+
+	if (nextStmt == nil) {
+		fmt.Printf("Error at %s no successor for statement node %d \n",_file_line_(),stmt.id)
+		return 
 	}
 	
 	if ( len(nextStmt.cfgNodes) >0 ) {
@@ -2187,23 +2193,27 @@ func (l *argoListener) forwardCfgPass() {
 			
 			currentCfgNode.cfgType = "eos"
 			parentStmt = currentStmt.parent
+			nextStmt = nil 
 			
-			if (parentStmt.child != nil) && (currentStmt.childID > 0) {
-				nextStmt = currentStmt.child
-			} else if (len(currentStmt.successors) > 0) {
-				nextStmt = currentStmt.successors[0]
-			} else {
-				fmt.Printf("Error at %s no successor for statement node %d \n",_file_line_(),parentStmt.id)		
+			if (parentStmt != nil) {
+				if ( len(parentStmt.successors) > 0)  {
+					nextStmt = parentStmt.successors[0]
+				}
+			}
+			
+			if (nextStmt == nil) {
+				fmt.Printf("Error at %s no successor for stmt %d parent node %d \n",_file_line_(),currentStmt.id,parentStmt.id)
+				continue 
 			}
 
-
-			if ( len(nextStmt.cfgNodes) > 0 ) {
-				currentCfgNode.successors = append(currentCfgNode.successors,nextStmt.cfgNodes...)
+			currentCfgNode.successors = append(currentCfgNode.successors,nextStmt.cfgNodes...)
+			if ( len(currentStmt.predecessors) > 0) { 
+				predStmt := currentStmt.predecessors[0] 
+				currentCfgNode.predecessors = append(currentCfgNode.predecessors,predStmt.cfgNodes[0])
 			} else {
-				fmt.Printf("Error at %s no successor for successor stmt node %d \n",_file_line_(),nextStmt.id)
+				fmt.Printf("Error at %s no cfg predecessor for stmt %d \n",_file_line_(),currentStmt.id)
+				continue 
 			}
-
-			nextStmt.cfgNodes[0].predecessors = append(nextStmt.cfgNodes[0].predecessors,currentCfgNode)
 
 
 		}
@@ -2226,10 +2236,24 @@ func (l *argoListener) forwardCfgPass() {
 		if (currentStmt.stmtType == "FuncExit") {
 			currentCfgNode.cfgType = "funcExit"
 		}
-		
+
+		// the child is the next logical statement 
 		if (currentStmt.stmtType == "functionDecl" ) {
 			currentCfgNode.cfgType = "functionDecl"
-			addLinearToCfg(currentCfgNode,currentStmt)
+			if (currentStmt.child != nil) {
+				childStmt := currentStmt.child
+				currentCfgNode.successors = append(currentCfgNode.successors,childStmt.cfgNodes...)
+			}
+
+			// FIXME: if a function has multiple entry points, make a copy of the local
+			// graph so every call point gets a copy of the function. Similar to inline function
+			// calls. This code allows only a single copy of a function active at a time 
+			if ( len(currentStmt.predecessors) >0) {
+				for _, stmt := range currentStmt.predecessors { 
+					currentCfgNode.predecessors = append(currentCfgNode.predecessors,stmt.cfgNodes...)
+					
+				}
+			}
 		}
 		
 		if (currentStmt.stmtType == "goStmt") {
