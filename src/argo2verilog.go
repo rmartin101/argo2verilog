@@ -967,12 +967,6 @@ func (l *argoListener) linkDangles(parentHead,parentTail *StatementNode) int {
 	return count 
 }
 
-// the the successor/predecessor edges of the return statements 
-func (l *argoListener) setReturnTargets(funcExit,parent *StatementNode) {
-	
-	
-}
-
 // parse an ifStmt AST node into a statement graph nodes
 // return a list of lists of any sub-statements from the blocks 
 // The structure is to create new statement nodes for all the childern in a main loop looking for
@@ -2132,8 +2126,6 @@ func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
 // The approach is to create control flow graph nodes 1-to-1 with statement nodes
 // and then add/remove edges
 
-
-
 func (l *argoListener) forwardCfgPass() {
 	var currentStmt *StatementNode 
 	var currentCfgNode *CfgNode 
@@ -2165,7 +2157,6 @@ func (l *argoListener) forwardCfgPass() {
 			
 		}
 		
-
 		// find the outer statement and break to there.
 		// look for the parent for statement
 		// FIXME: what if the parent has multiple sucessors? 
@@ -2214,8 +2205,6 @@ func (l *argoListener) forwardCfgPass() {
 				fmt.Printf("Error at %s no cfg predecessor for stmt %d \n",_file_line_(),currentStmt.id)
 				continue 
 			}
-
-
 		}
 		
 		// 
@@ -2232,9 +2221,20 @@ func (l *argoListener) forwardCfgPass() {
 		if (currentStmt.stmtType == "forStmt") {
 			currentCfgNode.cfgType = "for"
 		}
-		
+
+
+		// if a function has multiple entry/exit nodes, we will need to split the CFG
+		// graph into separate disjoint section, one for each entry/exit pair 
 		if (currentStmt.stmtType == "FuncExit") {
 			currentCfgNode.cfgType = "funcExit"
+			
+			for _, succStmt := range currentStmt.successors { 
+				currentCfgNode.successors = append(currentCfgNode.successors,succStmt.cfgNodes...)
+			}
+			
+			for _, predStmt := range currentStmt.predecessors { 				
+				currentCfgNode.predecessors = append(currentCfgNode.predecessors,predStmt.cfgNodes...)
+			}
 		}
 
 		// the child is the next logical statement 
@@ -2263,6 +2263,9 @@ func (l *argoListener) forwardCfgPass() {
 		if (currentStmt.stmtType == "ifStmt") {
 			// create the test node and the the taken node.
 			currentCfgNode.cfgType = "ifStmt"
+			currentCfgNode.predecessors = append(currentCfgNode.predecessors,currentStmt.cfgNodes...)
+			
+			
 		}		
 		if (currentStmt.stmtType == "incDecStmt" ) {
 			currentCfgNode.cfgType = "incDecStmt"

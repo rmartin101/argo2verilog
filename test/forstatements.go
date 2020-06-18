@@ -58,6 +58,7 @@ func main() {
 		fmt.Printf("Inside the sum is %d \n",sum) ;	
 	};
 	fmt.Printf("Outer sum is %d \n",sum) ;
+	sum = plusOne(-1);
 	sum = 0;
 	for i := plusOne(i); i < 7 ; i = i + 1 {
 		sum = sum + i;

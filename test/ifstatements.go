@@ -59,14 +59,14 @@ func main() {
 	} ;
 	// highly chained if-elses 
 	if  z:=7; z > ( z*(i*i) * (j+k) )  {
-		fmt.Printf(" Z is %d  \n", z) ;	
+		fmt.Printf(" Z is %d  \n", z) ; 
 	} else if (( z * z) > 3) {
 		fmt.Printf("Z*Z is %d  \n", z*z) ;
 	} else if ( (z - i ) > 4) {
 		fmt.Printf("Z*Z*Z is %d  \n", z*z*z) ;	
 	} else {
 		fmt.Printf("End of the chained if \n") ;
-	}; 
+	} ;
 
 } ;
 
