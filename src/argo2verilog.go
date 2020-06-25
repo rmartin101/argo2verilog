@@ -355,17 +355,39 @@ type ArgoErrorListener struct {
 
 func (l *ArgoErrorListener) SyntaxError(recognizer antlr.Recognizer, offendingSymbol interface{}, line, column int, msg string, e antlr.RecognitionException) {
 	l.syntaxErrors += 1
+
+	if (l.syntaxErrors > max_parse_errors) {
+		fmt.Printf("Error: too many syntax errors at %s . Aborting. \n",_file_line_())
+		os.Exit(-1)
+	}
 }
 
 func (l *ArgoErrorListener) ReportAmbiguity(recognizer antlr.Parser, dfa *antlr.DFA, startIndex, stopIndex int, exact bool, ambigAlts *antlr.BitSet, configs antlr.ATNConfigSet) {
 	l.ambiErrors += 1
+
+	if (l.ambiErrors > max_parse_errors) {
+		fmt.Printf("Error: too many ambigutity errors at %s . Aborting. \n",_file_line_())
+		os.Exit(-1)
+	}
+
 }
 
 func (l *ArgoErrorListener) ReportAttemptingFullContext(recognizer antlr.Parser, dfa *antlr.DFA, startIndex, stopIndex int, conflictingAlts *antlr.BitSet, configs antlr.ATNConfigSet) {
 	l.contextErrors += 1
+
+	if (l.contextErrors > max_parse_errors) {
+		fmt.Printf("Error: too many context errors at %s . Aborting. \n",_file_line_())
+		os.Exit(-1)
+	}
+
 }
 func (l *ArgoErrorListener) ReportContextSensitivity(recognizer antlr.Parser, dfa *antlr.DFA, startIndex, stopIndex, prediction int, configs antlr.ATNConfigSet) {
 	l.sensitivityErrors += 1
+
+	if (l.sensitivityErrors > max_parse_errors) {
+		fmt.Printf("Error: too many sensitvity rrors at %s . Aborting. \n",_file_line_())
+		os.Exit(-1)		
+	}
 }
 
 // this is the main top-level structure 
@@ -1975,14 +1997,15 @@ func (l *argoListener) getStatementGraph() int {
 
 				// if this is the main function, make the predicessor the startNode and
 				// the successor of the start node the main() definition
+				// else the predecessors 
 				if (funcStr == "main") {
 					startNode.child = entryNode
 					startNode.childID = entryNode.id
 					entryNode.parent = startNode
 					startNode.addStmtSuccessor(entryNode)
 					entryNode.addStmtPredecessor(startNode)
-				}
-				
+				} 
+					
 				exitNode = new(StatementNode)
 				exitNode.id = l.nextStatementID; l.nextStatementID++
 				exitNode.parseDef = funcEOS
@@ -2007,10 +2030,12 @@ func (l *argoListener) getStatementGraph() int {
 				
 				// set the edges from the entry point to this list
 				
-
 				if ( len(statements) > 0) {
 					entryNode.child = statements[0]
 					entryNode.childID = statements[0].id
+					// make sure to add the funcDecl as a predecessor
+					entryNode.child.addStmtPredecessor(entryNode)
+					
 				} else {
 					fmt.Printf("Warning: Function %s has zero statements",funcStr)
 				}
@@ -2122,22 +2147,25 @@ func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
 */
 
 
-// create the list of control nodes
+// create the list of control flow nodes
 // The approach is to create control flow graph nodes 1-to-1 with statement nodes
-// and then add/remove edges
-
+// and then add/remove edges. Not all of the control flow nodes will end up
+// reachable, but we can rely on the 1-1 statement to cfg node propety
+// for the forward pass. 
 func (l *argoListener) forwardCfgPass() {
 	var currentStmt *StatementNode 
 	var currentCfgNode *CfgNode 
 
 	// iniital loop creates a CFG node for every statementnode
+	// also sets visited to false for the forward pass 
 	for _, currentStmt = range(l.statementGraph) {
+		currentStmt.visited = false 
 		_, currentCfgNode = l.newCFGnode(currentStmt, 0)
 		l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
 	}
 	
 	// proceeded linearly down the sequence of statements
-	// and create all needed
+	// and create needed edges
 	for _, currentStmt = range(l.statementGraph) {
 
 		// At this point in the forward pass there should only by single cfg node 
@@ -2146,6 +2174,12 @@ func (l *argoListener) forwardCfgPass() {
 			continue 
 		}
 
+		if (currentStmt.visited == true) {
+			continue 
+		}
+
+		currentStmt.visited = true
+		
 		currentCfgNode = currentStmt.cfgNodes[0]
 		if (currentStmt.stmtType == "assignment") {	
 			currentCfgNode.cfgType = "assignment"
@@ -2246,7 +2280,7 @@ func (l *argoListener) forwardCfgPass() {
 			}
 
 			// FIXME: if a function has multiple entry points, make a copy of the local
-			// graph so every call point gets a copy of the function. Similar to inline function
+			// graph so every call point gets a copy of the function. Similar to inlined function
 			// calls. This code allows only a single copy of a function active at a time 
 			if ( len(currentStmt.predecessors) >0) {
 				for _, stmt := range currentStmt.predecessors { 
@@ -2263,7 +2297,42 @@ func (l *argoListener) forwardCfgPass() {
 		if (currentStmt.stmtType == "ifStmt") {
 			// create the test node and the the taken node.
 			currentCfgNode.cfgType = "ifStmt"
-			currentCfgNode.predecessors = append(currentCfgNode.predecessors,currentStmt.cfgNodes...)
+
+			predStmt := currentStmt.predecessors[0]
+			succStmt := currentStmt.successors[0]
+			ifSimple := currentStmt.ifSimple 
+			ifTest := currentStmt.ifTest
+			ifTaken := currentStmt.ifTaken
+			ifElse := currentStmt.ifElse
+
+			currentCfgNode.predecessors = append(currentCfgNode.predecessors,predStmt.cfgNodes...)
+			
+			if (ifSimple != nil) {
+				currentStmt.cfgNodes[0].successors =
+					append(currentStmt.cfgNodes[0].successors,ifSimple.cfgNodes...)
+				ifSimple.cfgNodes[0].predecessors =
+					append(ifSimple.cfgNodes[0].predecessors,currentStmt.cfgNodes[0])
+				ifSimple.cfgNodes[0].successors =
+					append(ifSimple.cfgNodes[0].successors,ifSimple.cfgNodes...)
+				ifSimple.visited = true
+			} else {
+				currentStmt.cfgNodes[0].successors =
+					append(currentStmt.cfgNodes[0].successors,ifTest.cfgNodes...)
+			}
+
+
+			if (ifTaken != nil) {
+				ifTest.cfgNodes[0].successors_taken = append(ifTest.cfgNodes[0].successors_taken,ifTaken.cfgNodes...)
+			} else {
+				fmt.Printf("Error: If statement id:%d no taken clause\n",currentStmt.id)
+				continue 
+			}
+
+			if (ifElse != nil) {
+				ifTest.cfgNodes[0].successors = append(ifTest.cfgNodes[0].successors,ifElse.cfgNodes...)
+			} else {
+				ifTest.cfgNodes[0].successors = append(ifTest.cfgNodes[0].successors,succStmt.cfgNodes...)
+			}
 			
 			
 		}		
@@ -2314,7 +2383,7 @@ func (l *argoListener) printControlFlowGraph() {
 	})
 	
 	for i, node := range l.controlFlowGraph {
-		fmt.Printf("Cntl: %d: ID:%d :%s: %s succ: ", i,node.id,node.cannName,node.cfgType)
+		fmt.Printf("Cntl: %d: ID:%d stmt:%d :%s: %s succ: ", i,node.id,node.statement.id,node.cannName,node.cfgType)
 
 		for _,s:= range node.successors { 
 			fmt.Printf("%d ",s.id)
@@ -2736,7 +2805,7 @@ func parseArgo(fname *string) *argoListener {
 	var listener *argoListener
 
 	listener = new(argoListener)
-	
+
 	input, err := antlr.NewFileStream(*fname)
 	
 	lexer := parser.NewArgoLexer(input)
@@ -2789,13 +2858,19 @@ func parseArgo(fname *string) *argoListener {
 	return listener
 }
 
+// this is a global variable to abort when there are too
+// many errors
+var max_parse_errors int
+
 func main() {
 	var parsedProgram *argoListener 
 	var inputFileName_p *string
 	var printASTasGraphViz_p,printASTasText_p,printVarNames_p,printFuncNames_p,printStmtGraph_p,parseCheck_p *bool
 	var printCntlGraph_p *bool
-
+	
 	inputFileName_p = nil
+	max_parse_errors = 50
+	
 	printASTasGraphViz_p = flag.Bool("gv",false,"print the parse tree in GraphViz format")
 	printASTasText_p = flag.Bool("parse",false,"print the parse tree in text format")	
 	printVarNames_p = flag.Bool("vars",false,"print all variables")
