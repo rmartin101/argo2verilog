@@ -1165,7 +1165,8 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 
 	if (subIfStmt != nil) {
 		testStmt.addStmtSuccessor(subIfStmt)
-		subIfStmt.addStmtPredecessor(testStmt)		
+		subIfStmt.addStmtPredecessor(testStmt)
+		// subIfStmt.addStmtSuccessor(ifStmt.successors[0])		
 	}
 
 	if (takenHead != nil) || (takenTail != nil) || (elseHead != nil) || (elseTail !=nil) {
@@ -2053,6 +2054,7 @@ func (l *argoListener) getStatementGraph() int {
 	for _, stmtNode := range(l.statementGraph) {
 		stmtNode.visited = false 
 	}
+
 	// Remove dangling pointers by adding return edges 
 	for _, stmtNode := range(l.statementGraph) {
 		if (stmtNode.stmtType == "functionDecl") {
@@ -2065,6 +2067,8 @@ func (l *argoListener) getStatementGraph() int {
 		stmtNode.visited = false 
 	}
 
+	
+	
 	// fix up various edges
 	l.addInternalReturnEdges()
 	// Add call and return edges
@@ -2513,16 +2517,35 @@ func (l *argoListener) printFuncNodes() {
 }
 
 // print the statement graph
-func (l *argoListener) printStatementGraph() {
+func (l *argoListener) printStatementGraph(format string) {
 	var j int
 
 	// sort by id number 
 	sort.Slice(l.statementGraph, func(i, j int) bool {
 		return l.statementGraph[i].id < l.statementGraph[j].id
 	})
+
+	if (format == "graphViz") {
+		fmt.Printf("Digraph G { \n")
+	}
 	
 	for i, node := range l.statementGraph {
-		fmt.Printf("Stmt: %d: ID:%d at (%d,%d) type:%s parent: %d child: %d pred: ", i,node.id, node.sourceRow, node.sourceCol, node.stmtType,node.parentID,node.childID)
+
+		if (format == "text") {
+			fmt.Printf("Stmt: %d: ID:%d at (%d,%d) type:%s parent: %d child: %d pred: ", i,node.id, node.sourceRow, node.sourceCol, node.stmtType,node.parentID,node.childID)
+		}
+
+		if (format == "graphViz") {
+			parent := node.parent
+			child := node.child
+			if (parent != nil) {
+				fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"pa\" ]; \n",node.id,node.stmtType,parent.id,parent.stmtType)
+			}
+			if (child != nil) {
+				fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"ch\" ]; \n",node.id,node.stmtType,child.id,child.stmtType)
+			}
+		}
+		
 		// assertion checks:
 		if (len(node.predecessors) != len(node.predIDs)) {
 			fmt.Printf("Error: length of precedessors does not match %d %d \n",len(node.predecessors),len(node.predIDs))
@@ -2531,39 +2554,73 @@ func (l *argoListener) printStatementGraph() {
 			fmt.Printf("Error: length of successors does not match %d %d \n",len(node.successors),len(node.succIDs))
 		}
 
-		for _,id := range node.predIDs { 
-			fmt.Printf("%d ",id)
+		for i,id := range node.predIDs { 
+			if (format == "text") {
+				fmt.Printf("%d ",id)
+			}
+			if (format == "graphViz") {
+				pred := node.predecessors[i]
+				fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"pr\" ]; \n",node.id,node.stmtType,pred.id,pred.stmtType)
+			}
 		}
 
-		fmt.Printf(" succ: ")
+		if (format == "text") {		
+			fmt.Printf(" succ: ")
+		}
 		j = 0 
 		for (j < len(node.succIDs)) {
-			fmt.Printf("%d ",node.succIDs[j])
+			if (format == "text") {
+				fmt.Printf("%d ",node.succIDs[j])
+
+			}
+			if (format == "graphViz") {
+				succ := node.successors[j]
+				fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"su\" ]; \n",node.id,node.stmtType,succ.id,succ.stmtType)
+			}
 			j++
 		}		
 
 		if len(node.callTargets) >0 {
-			fmt.Printf(" callto: ")
+			if (format == "text") {			
+				fmt.Printf(" callto: ")
+			}
 			j=0
 			for (j < len(node.callTargets)) {
-				fmt.Printf("%d ",node.callTargets[j].id)
+
+				if (format == "text") {
+					fmt.Printf("%d ",node.callTargets[j].id)
+				}
+				if (format == "graphViz") {
+					callee := node.callTargets[j]
+					fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"ca\" ]; \n",node.id,node.stmtType,callee.id,callee.stmtType)					
+				}
 				j++
 			}		
 		}
 
 		if len(node.returnTargets) >0 {
-			fmt.Printf(" return: ")
+			if (format == "text") {			
+				fmt.Printf(" return: ")
+			}
 			j=0
 			for (j < len(node.returnTargets)) {
-				fmt.Printf("%d ",node.returnTargets[j].id)
+				if (format == "text") {
+					fmt.Printf("%d ",node.returnTargets[j].id)
+				}
+				if (format == "graphViz") {
+					ret := node.returnTargets[j]
+					fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"ca\" ]; \n",node.id,node.stmtType,ret.id,ret.stmtType)										
+				}
 				j++
 			}		
 		}
 
 		if len(node.writeVars) >0 {
-			fmt.Printf(" writeVars: ")
-			for _, varNode := range( node.writeVars) {
-				fmt.Printf("%s  ", varNode.sourceName)
+			if (format == "text") {			
+				fmt.Printf(" writeVars: ")
+				for _, varNode := range( node.writeVars) {
+					fmt.Printf("%s  ", varNode.sourceName)
+				}
 			}
 		}
 		// Get sub statement lists for this node
@@ -2578,11 +2635,60 @@ func (l *argoListener) printStatementGraph() {
 		case "gotoStmt":
 		case "fallthroughStmt":
 		case "ifStmt":
-			fmt.Printf("simple: %d test: %d taken %d else %d ",node.ifSimpleID(),node.ifTestID(),node.ifTakenID(),node.ifElseID())
+			if (format == "text") {						
+				fmt.Printf("simple: %d test: %d taken %d else %d ",node.ifSimpleID(),node.ifTestID(),node.ifTakenID(),node.ifElseID())
+			}
+
+			if (format == "graphViz") {
+				ifSimple := node.ifSimple
+				ifTest := node.ifTest
+				ifTaken := node.ifTaken
+				ifElse := node.ifElse
+
+				if (ifSimple != nil) {
+					fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"ifs\" ]; \n",node.id,node.stmtType,ifSimple.id,ifSimple.stmtType)
+				}
+				if (ifTest != nil) {
+					fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"its\" ]; \n",node.id,node.stmtType,ifTest.id,ifTest.stmtType)
+				}
+				if (ifTaken != nil) {
+					fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"ita\" ]; \n",node.id,node.stmtType,ifTaken.id,ifTaken.stmtType)
+				}
+				
+				if (ifElse != nil) {
+					fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"iel\" ]; \n",node.id,node.stmtType,ifElse.id,ifElse.stmtType)
+				}
+			}
+			
 		case "switchStmt":
 		case "selectStmt":
 		case "forStmt":
-			fmt.Printf("init: %d cond: %d post %d block %d ",node.forInitID(),node.forCondID(),node.forPostID(),node.forBlockID())
+			if (format == "text") {						
+				fmt.Printf("init: %d cond: %d post %d block %d ",node.forInitID(),node.forCondID(),node.forPostID(),node.forBlockID())
+			}
+
+
+			if (format == "graphViz") {
+				forInit := node.forInit
+				forCond := node.forCond
+				forPost := node.forPost
+				forBlock := node.forBlock
+
+				if (forInit != nil) {
+					fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"fin\" ]; \n",node.id,node.stmtType,forInit.id,forInit.stmtType)
+				}
+				if (forCond != nil) {
+					fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"its\" ]; \n",node.id,node.stmtType,forCond.id,forCond.stmtType)
+				}
+				if (forPost != nil) {
+					fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"ita\" ]; \n",node.id,node.stmtType,forPost.id,forPost.stmtType)
+				}
+				
+				if (forBlock != nil) {
+					fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"iel\" ]; \n",node.id,node.stmtType,forBlock.id,forBlock.stmtType)
+				}
+			}
+			
 		case "sendStmt":
 		case "expressionStmt":
 		case "incDecStmt":
@@ -2595,6 +2701,9 @@ func (l *argoListener) printStatementGraph() {
 		}
 
 		fmt.Printf("\n")		
+	}
+	if (format == "graphViz") {
+		fmt.Printf("} \n")
 	}
 }
 
@@ -2866,6 +2975,7 @@ func main() {
 	var parsedProgram *argoListener 
 	var inputFileName_p *string
 	var printASTasGraphViz_p,printASTasText_p,printVarNames_p,printFuncNames_p,printStmtGraph_p,parseCheck_p *bool
+	var printStmtGraphGV_p *bool
 	var printCntlGraph_p *bool
 	
 	inputFileName_p = nil
@@ -2875,6 +2985,7 @@ func main() {
 	printASTasText_p = flag.Bool("parse",false,"print the parse tree in text format")	
 	printVarNames_p = flag.Bool("vars",false,"print all variables")
 	printStmtGraph_p = flag.Bool("stmt",false,"print the statement graph")
+	printStmtGraphGV_p = flag.Bool("stmtgv",false,"print the statement graph in graphviz format")
 	printFuncNames_p = flag.Bool("func",false,"print all functions")
 	printCntlGraph_p = flag.Bool("cntl",false,"print the control-flow graph")
 	parseCheck_p     = flag.Bool("check",false,"check for correct syntax ")
@@ -2912,9 +3023,12 @@ func main() {
 	
 	parsedProgram.getStatementGraph()  // now make the statementgraph 
 	if (*printStmtGraph_p) {
-		parsedProgram.printStatementGraph()	
+		parsedProgram.printStatementGraph("text")	
 	}
-
+	if (*printStmtGraphGV_p) {
+		parsedProgram.printStatementGraph("graphViz")	
+	}
+	
 	if (*printCntlGraph_p) {
 		parsedProgram.getControlFlowGraph()  // now make the statementgraph
 		parsedProgram.printControlFlowGraph()	
