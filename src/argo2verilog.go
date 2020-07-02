@@ -1,5 +1,5 @@
 /* Argo to Verilog Compiler 
-    (c) 2019, Richard P. Martin and contributers 
+    (c) 2020, Richard P. Martin and contributers 
     
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -993,7 +993,7 @@ func (l *argoListener) linkDangles(parentHead,parentTail *StatementNode) int {
 // return a list of lists of any sub-statements from the blocks 
 // The structure is to create new statement nodes for all the childern in a main loop looking for
 // the types of the children nodes. Then the function creates the predecessors and successor edges
-func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt *StatementNode) []*StatementNode {
+func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt *StatementNode,eosStmt *StatementNode) []*StatementNode {
 	var funcName *ParseNode               // name of the function
 	var funcStr  string                 // name of the function as a string 
 	var subNode        *ParseNode         // sub-simple statement type
@@ -1101,7 +1101,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 				childStmt.stmtType = "ifStmt"
 				ifSubStmtNode = childNode
 				subIfStmt = childStmt
-				blocklist = l.parseIfStmt(ifSubStmtNode,funcDecl,subIfStmt)
+				blocklist = l.parseIfStmt(ifSubStmtNode,funcDecl,subIfStmt,eosStmt)
 				if (len(blocklist) >0) {
 					elseHead = blocklist[0]
 					elseTail = blocklist[len(blocklist)-1]
@@ -1111,6 +1111,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 		
 	} // end for children of isStmt 
 
+	
 	// add links to the main if statement for the control flow graph 
 	ifStmt.ifSimple = simpleStmt
 	ifStmt.ifTest = testStmt
@@ -1161,12 +1162,13 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 	if (elseStmt != nil) {
 		testStmt.addStmtSuccessor(elseStmt)
 		elseStmt.addStmtPredecessor(testStmt)
+		elseStmt.addStmtSuccessor(eosStmt)
 	} 
 
 	if (subIfStmt != nil) {
 		testStmt.addStmtSuccessor(subIfStmt)
 		subIfStmt.addStmtPredecessor(testStmt)
-		// subIfStmt.addStmtSuccessor(ifStmt.successors[0])		
+		subIfStmt.addStmtSuccessor(eosStmt)
 	}
 
 	if (takenHead != nil) || (takenTail != nil) || (elseHead != nil) || (elseTail !=nil) {
@@ -1511,7 +1513,8 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 	var funcName *ParseNode  // name of the function for the current statement
 	var funcStr  string   //  string name of the function
 	var subNode *ParseNode  // current statement node
-	var eosNode *ParseNode  // the end of the statement list node 
+	var eosNode *ParseNode  // the end of the statement list node
+	var eosStmt *StatementNode  // the node of the end-of-statement node 
 	var stmtTypeNode *ParseNode // which simpleStmt type is this?, e.g ifStmt, shortVarDecl, forStmt.
 	var statementList []*StatementNode
 	var predecessorStmt *StatementNode 
@@ -1528,8 +1531,34 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 
 	predecessorStmt = nil
 	eosNode = listnode.children[len(listnode.children) -1]
+		// make the EOS (end of statement) for this block
+	// this allows the graph to have a single level of structure
+	// and not have control edges cross multiple nesting levels 
+	eosStmt = new(StatementNode)
+	eosStmt.id = l.nextStatementID; l.nextStatementID++
+	eosStmt.parseDef = eosNode
+	eosStmt.parseDefID =  eosNode.id
+	eosStmt.parseSubDef = eosNode
+	eosStmt.parseSubDefID =  eosNode.id
+	eosStmt.stmtType = eosNode.ruleType
+	eosStmt.funcName = funcStr
+	eosStmt.sourceRow =  eosNode.sourceLineStart 
+	eosStmt.sourceCol =  eosNode.sourceColStart
+	eosStmt.parent = parentStmt
+	eosStmt.parentID = parentStmt.id
+	eosStmt.child = nil
+	eosStmt.childID = -1
+	eosStmt.ifSimple = nil 
+	eosStmt.ifTaken = nil
+	eosStmt.ifElse  = nil
+	eosStmt.forInit = nil
+	eosStmt.forCond = nil 
+	eosStmt.forPost = nil
+	eosStmt.forBlock = nil
+	eosStmt.caseList = nil
+
 	//numChildren = len(listnode.children)
-	for _, childnode := range listnode.children { // for each statement in the statementlist
+	for i, childnode := range listnode.children { // for each statement in the statementlist
 
 		// go one level down to skip the variable declaration statements
 		if (len(childnode.children) > 0) {
@@ -1593,7 +1622,13 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 					case "gotoStmt":
 					case "fallthroughStmt":
 					case "ifStmt":
-						slist = l.parseIfStmt(subNode,funcDecl,stateNode)
+						// get the eos of the next node
+						// this will become the successor in the statement graph 
+						successorEos := listnode.children[i+1]
+						if (successorEos.ruleType != "eos") {
+							fmt.Printf("Error: no eos following if \n",_file_line_())
+						}
+						slist = l.parseIfStmt(subNode,funcDecl,stateNode,eosStmt)
 						if (len(slist) > 0) {
 							stateNode.child = slist[0]
 							stateNode.childID = slist[0].id
@@ -1631,43 +1666,20 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 	} // end for the children nodes
 	
 	if (statementList == nil) {
-		fmt.Printf("\t \tError list is nil \n")
+		fmt.Printf("Error! return from statementlist has zero statements %s\n", _file_line_())
 		return nil 
 	}
 
-	// make the EOS (end of statement) for this block
-	// this allows the graph to have a single level of structure
-	// and not have control edges cross multiple nesting levels 
-	stateNode = new(StatementNode)
-	stateNode.id = l.nextStatementID; l.nextStatementID++
-	stateNode.parseDef = eosNode
-	stateNode.parseDefID =  eosNode.id
-	stateNode.parseSubDef = eosNode
-	stateNode.parseSubDefID =  eosNode.id
-	stateNode.stmtType = eosNode.ruleType
-	stateNode.funcName = funcStr
-	stateNode.sourceRow =  eosNode.sourceLineStart 
-	stateNode.sourceCol =  eosNode.sourceColStart
-	stateNode.parent = parentStmt
-	stateNode.parentID = parentStmt.id
-	stateNode.child = nil
-	stateNode.childID = -1
-	stateNode.ifSimple = nil 
-	stateNode.ifTaken = nil
-	stateNode.ifElse  = nil
-	stateNode.forInit = nil
-	stateNode.forCond = nil 
-	stateNode.forPost = nil
-	stateNode.forBlock = nil
-	stateNode.caseList = nil
-	// add this to the global list of statements 
-	l.statementGraph = append(l.statementGraph,stateNode)
+	l.statementGraph = append(l.statementGraph,eosStmt)
+	statementList = append(statementList,eosStmt)
 	
+	// add End-of-Statement statement node to the global list of statements
+	// and to the end of the current list 
 	if (predecessorStmt != nil)  {
-		predecessorStmt.addStmtSuccessor(stateNode)
+		predecessorStmt.addStmtSuccessor(eosStmt)
 		stateNode.addStmtPredecessor(predecessorStmt)
 	}
-	statementList = append(statementList,stateNode)
+
 	
 	return statementList 
 }

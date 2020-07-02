@@ -70,3 +70,17 @@ func main() {
 
 } ;
 
+/* 
+
+ if () { 
+    <body1> 
+ } else <body2> if () { 
+    <body3>
+ } else <body4> if () { 
+   <body5>
+ } else <body6> if () 
+  <body6>
+ }
+ eos 
+
+*/
