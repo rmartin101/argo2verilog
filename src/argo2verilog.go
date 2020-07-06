@@ -1509,9 +1509,12 @@ func (l *argoListener) getAllFunctions() {
 
 // Given a statementlist, return a list of StatementNodes
 // Uses recursion to follow if and for, case and select statements
+// Evey list must end with an End-Of-Statement (EOS) which is the terminal node for this list and
+// Past as the terminal statement for various sub-statements
 func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *StatementNode,funcDecl *ParseNode) []*StatementNode {
 	var funcName *ParseNode  // name of the function for the current statement
 	var funcStr  string   //  string name of the function
+	var numChildren,i int 
 	var subNode *ParseNode  // current statement node
 	var eosNode *ParseNode  // the end of the statement list node
 	var eosStmt *StatementNode  // the node of the end-of-statement node 
@@ -1530,41 +1533,30 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 	funcStr = funcName.sourceCode
 
 	predecessorStmt = nil
-	eosNode = listnode.children[len(listnode.children) -1]
-		// make the EOS (end of statement) for this block
-	// this allows the graph to have a single level of structure
-	// and not have control edges cross multiple nesting levels 
-	eosStmt = new(StatementNode)
-	eosStmt.id = l.nextStatementID; l.nextStatementID++
-	eosStmt.parseDef = eosNode
-	eosStmt.parseDefID =  eosNode.id
-	eosStmt.parseSubDef = eosNode
-	eosStmt.parseSubDefID =  eosNode.id
-	eosStmt.stmtType = eosNode.ruleType
-	eosStmt.funcName = funcStr
-	eosStmt.sourceRow =  eosNode.sourceLineStart 
-	eosStmt.sourceCol =  eosNode.sourceColStart
-	eosStmt.parent = parentStmt
-	eosStmt.parentID = parentStmt.id
-	eosStmt.child = nil
-	eosStmt.childID = -1
-	eosStmt.ifSimple = nil 
-	eosStmt.ifTaken = nil
-	eosStmt.ifElse  = nil
-	eosStmt.forInit = nil
-	eosStmt.forCond = nil 
-	eosStmt.forPost = nil
-	eosStmt.forBlock = nil
-	eosStmt.caseList = nil
 
-	//numChildren = len(listnode.children)
-	for i, childnode := range listnode.children { // for each statement in the statementlist
 
-		// go one level down to skip the variable declaration statements
-		if (len(childnode.children) > 0) {
-			
-			subNode = childnode.children[0] // subnode should be a statement
+	// every statement is separated by and EOS statement separator
+	// This loop advances through the list in groups of 2, one for the main statement and one for the eos 
+	// We will need to pass the eos to the recursively defined statements such as if, for and case
+	// that have a block/list as a sub-statement 
+	numChildren = len(listnode.children)
+	if ( (numChildren % 2) !=0 ) { // check we have an even number of children as every statement has and eos separator 
+		fmt.Printf("Error: got statement list with odd number of statements %d \n",_file_line_())
+		return nil
+	}
 
+	// here is the main loop walking down a list of statements 
+	for i =0; i < (numChildren-1) ; i=i+2 {
+
+		childNode := listnode.children[i]
+		if (childNode.visited == true) {
+			continue 
+		}
+		childNode.visited = true
+
+		// check the type if we want to continue 
+		if (len(childNode.children) > 0) {
+			subNode = childNode.children[0] // subnode should be a statement
 			// skip decls 
 			if (subNode.ruleType != "declaration" )&& (subNode.ruleType != ";") && (len(subNode.children) >0) {
 				// simple statements have to go one level down to get the actual type 
@@ -1573,113 +1565,132 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 				} else { 
 					stmtTypeNode = subNode
 				}
-				
-				// create a new statement node if we have not visited the originating parse tree statement node
-				if (childnode.visited == false ){
-					stateNode = new(StatementNode)
-					stateNode.id = l.nextStatementID; l.nextStatementID++
-					stateNode.parseDef = childnode
-					stateNode.parseDefID =  childnode.id
-					stateNode.parseSubDef = stmtTypeNode
-					stateNode.parseSubDefID =  stmtTypeNode.id
-					stateNode.stmtType = stmtTypeNode.ruleType
-					stateNode.funcName = funcStr
-					stateNode.sourceRow =  stmtTypeNode.sourceLineStart 
-					stateNode.sourceCol =  stmtTypeNode.sourceColStart
-					stateNode.parent = parentStmt
-					stateNode.parentID = parentStmt.id
-					stateNode.child = nil
-					stateNode.childID = -1
-					stateNode.ifSimple = nil 
-					stateNode.ifTaken = nil
-					stateNode.ifElse  = nil
-					stateNode.forInit = nil
-					stateNode.forCond = nil 
-					stateNode.forPost = nil
-					stateNode.forBlock = nil
-					stateNode.caseList = nil
-					
-					// add this to the global list of statements 
-					l.statementGraph = append(l.statementGraph,stateNode)
+			} else {
+				continue;
+			}
 
-					childnode.visited = true
+		} else {
+			continue;
+		}
 
-					// attach the predecessor to the newly generated node
-					if (predecessorStmt != nil) {
-						predecessorStmt.addStmtSuccessor(stateNode)
-						stateNode.addStmtPredecessor(predecessorStmt)
-					}
-
-					// Get sub statement lists for this node
-					switch stateNode.stmtType { 
-					case "declaration": 
-					case "labeledStmt":
-						
-					case "goStmt":
-					case "returnStmt":
-					case "breakStmt":
-					case "continueStmt":
-					case "gotoStmt":
-					case "fallthroughStmt":
-					case "ifStmt":
-						// get the eos of the next node
-						// this will become the successor in the statement graph 
-						successorEos := listnode.children[i+1]
-						if (successorEos.ruleType != "eos") {
-							fmt.Printf("Error: no eos following if \n",_file_line_())
-						}
-						slist = l.parseIfStmt(subNode,funcDecl,stateNode,eosStmt)
-						if (len(slist) > 0) {
-							stateNode.child = slist[0]
-							stateNode.childID = slist[0].id
-						}
-						
-					case "switchStmt":
-					case "selectStmt":
-					case "forStmt":
-						slist = l.parseForStmt(subNode,funcDecl,stateNode)
-						if (len(slist) > 0) {
-							stateNode.child = slist[0]
-							stateNode.childID = slist[0].id
-						}
-						
-					case "sendStmt":
-					case "expressionStmt":
-					case "incDecStmt":
-					case "assignment":
-					case "shortVarDecl":
-					case "emptyStmt":
-						
-					default:
-						fmt.Printf("Major error: no such statement type\n")
-					}
-
-					statementList = append(statementList,stateNode)	
-					predecessorStmt = statementList[len(statementList)-1] 
-					
-				} // end if visited == false 
-			} // end if child is not a declaration or statement separator 
-			
-		} // end if number of chidren >0
+		stateNode = new(StatementNode)
+		stateNode.id = l.nextStatementID; l.nextStatementID++
+		stateNode.parseDef = childNode
+		stateNode.parseDefID =  childNode.id
+		stateNode.parseSubDef = stmtTypeNode
+		stateNode.parseSubDefID =  stmtTypeNode.id
+		stateNode.stmtType = stmtTypeNode.ruleType
+		stateNode.funcName = funcStr
+		stateNode.sourceRow =  stmtTypeNode.sourceLineStart 
+		stateNode.sourceCol =  stmtTypeNode.sourceColStart
+		stateNode.parent = parentStmt
+		stateNode.parentID = parentStmt.id
+		stateNode.child = nil
+		stateNode.childID = -1
+		stateNode.ifSimple = nil 
+		stateNode.ifTaken = nil
+		stateNode.ifElse  = nil
+		stateNode.forInit = nil
+		stateNode.forCond = nil 
+		stateNode.forPost = nil
+		stateNode.forBlock = nil
+		stateNode.caseList = nil
+		// append to the local and global lists of statements 
+		statementList = append(statementList,stateNode)	 // local list 					
+		l.statementGraph = append(l.statementGraph,stateNode) // global list 
 		
-		// add links to previous/next for the sub-nodes 
-	} // end for the children nodes
+		// create the eos statement node, we will need it later
+		// The eos is the exit point for a sub list/block 
+		eosNode = listnode.children[i+1]
+		eosNode.visited = true
+
+		eosStmt = new(StatementNode)
+		eosStmt.id = l.nextStatementID; l.nextStatementID++
+		eosStmt.parseDef = eosNode
+		eosStmt.parseDefID =  eosNode.id
+		eosStmt.parseSubDef = eosNode
+		eosStmt.parseSubDefID =  eosNode.id
+		eosStmt.stmtType = eosNode.ruleType
+		eosStmt.funcName = funcStr
+		eosStmt.sourceRow =  eosNode.sourceLineStart 
+		eosStmt.sourceCol =  eosNode.sourceColStart
+		eosStmt.parent = parentStmt
+		eosStmt.parentID = parentStmt.id
+		eosStmt.child = nil
+		eosStmt.childID = -1
+		eosStmt.ifSimple = nil 
+		eosStmt.ifTaken = nil
+		eosStmt.ifElse  = nil
+		eosStmt.forInit = nil
+		eosStmt.forCond = nil 
+		eosStmt.forPost = nil
+		eosStmt.forBlock = nil
+		eosStmt.caseList = nil
+
+		statementList = append(statementList,eosStmt)						
+		l.statementGraph = append(l.statementGraph,eosStmt)
+		
+		// attach the predecessor to the newly generated node
+		if (predecessorStmt != nil) {
+			predecessorStmt.addStmtSuccessor(stateNode)
+		}
+		stateNode.addStmtSuccessor(eosStmt)
+		stateNode.addStmtPredecessor(predecessorStmt)
+
+		// Get sub statement lists for this node
+		switch stateNode.stmtType { 
+		case "declaration": 
+		case "labeledStmt":
+			
+		case "goStmt":
+		case "returnStmt":
+		case "breakStmt":
+		case "continueStmt":
+		case "gotoStmt":
+		case "fallthroughStmt":
+		case "ifStmt":
+			// get the eos of the next node
+			// this will become the successor in the statement graph 
+			slist = l.parseIfStmt(subNode,funcDecl,stateNode,eosStmt)
+			slistLen := len(slist)
+			if (slistLen > 0) {
+				stateNode.child = slist[0]
+				stateNode.childID = slist[0].id
+
+				// note the successor of the last statment in the
+				// sub-block is the eos of the if statement 
+				//slist[slistLen-1].addStmtSuccessor(eosStmt)
+			}
+						
+		case "switchStmt":
+		case "selectStmt":
+		case "forStmt":
+			slist = l.parseForStmt(subNode,funcDecl,stateNode)
+			slistLen := len(slist)			
+			if (slistLen > 0) {
+				stateNode.child = slist[0]
+				stateNode.childID = slist[0].id
+				//slist[slistLen-1].addStmtSuccessor(eosStmt)				
+			}
+						
+		case "sendStmt":
+		case "expressionStmt":
+		case "incDecStmt":
+		case "assignment":
+		case "shortVarDecl":
+		case "emptyStmt":
+						
+		default:
+			fmt.Printf("Major error: no such statement type\n")
+		}
+
+		predecessorStmt = eosStmt
+	} // end for loop of statementlist 
 	
 	if (statementList == nil) {
 		fmt.Printf("Error! return from statementlist has zero statements %s\n", _file_line_())
 		return nil 
 	}
-
-	l.statementGraph = append(l.statementGraph,eosStmt)
-	statementList = append(statementList,eosStmt)
-	
-	// add End-of-Statement statement node to the global list of statements
-	// and to the end of the current list 
-	if (predecessorStmt != nil)  {
-		predecessorStmt.addStmtSuccessor(eosStmt)
-		stateNode.addStmtPredecessor(predecessorStmt)
-	}
-
 	
 	return statementList 
 }

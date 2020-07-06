@@ -26,7 +26,7 @@ func main() {
 	
 	// simple if statement 
 	if  (i < j) {
-		fmt.Printf("I is less than J \n") ;		
+		fmt.Printf("I is less than J \n") ; 
 	} ;
 
 	
@@ -68,6 +68,7 @@ func main() {
 		fmt.Printf("End of the chained if \n") ;
 	} ;
 
+	k = i+j;
 } ;
 
 /* 
