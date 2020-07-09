@@ -1013,7 +1013,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 	// get the name of the function the ifStmt is in  
 	funcName = funcDecl.children[1]
 	funcStr = funcName.sourceCode
-
+	ifSubStmtNode = nil 
 	// loop for each child and create the appropriate sub-statement node
 	// after looping through all the children, we fix up the successors and predecessors edges
 	ifNode.visited = true 
@@ -1024,6 +1024,8 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 
 		// simpleStmt, expression, block of ifStmt
 		if (childNode.visited == false) {
+
+			childNode.visited = true 
 
 			// create a new node and populate it, set the type later 
 			if ( (childNode.ruleType == "simpleStmt") || (childNode.ruleType == "expression") ||
@@ -1038,6 +1040,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 				childStmt.parent = ifStmt
 				childStmt.parentID = ifStmt.id 
 				// add this to the global list of statements 
+
 				l.statementGraph = append(l.statementGraph,childStmt)
 				
 			}
@@ -1074,9 +1077,6 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 					headStmt = blocklist[0]
 					tailStmt = blocklist[len(blocklist)-1] 
 				}
-				
-
-
 			}
 
 			// this is the else block, unless the else is another if statement 
@@ -1139,6 +1139,8 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 	if (subIfStmt != nil) {
 		elseStmt = elseHead 
 		ifStmt.ifElse = subIfStmt
+		subIfStmt.addStmtSuccessor(eosStmt)
+		eosStmt.addStmtPredecessor(subIfStmt)
 	} else if (elseStmt != nil) {
 		ifStmt.ifElse = elseStmt 
 	}
@@ -1156,20 +1158,20 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 	statements = append(statements,testStmt)
 	testStmt.addStmtSuccessor(takenStmt)
 	takenStmt.addStmtPredecessor(testStmt)
+	//takenStmt.addStmtSuccessor(eosStmt)
+
 	statements = append(statements,takenStmt)
-	
+
+	if (takenTail != nil) {
+		takenTail.addStmtSuccessor(eosStmt)		
+	}
+
 	// the else and subIf are interchangable as the 2nd clause 
 	if (elseStmt != nil) {
 		testStmt.addStmtSuccessor(elseStmt)
 		elseStmt.addStmtPredecessor(testStmt)
-		elseStmt.addStmtSuccessor(eosStmt)
+		elseTail.addStmtSuccessor(eosStmt)
 	} 
-
-	if (subIfStmt != nil) {
-		testStmt.addStmtSuccessor(subIfStmt)
-		subIfStmt.addStmtPredecessor(testStmt)
-		subIfStmt.addStmtSuccessor(eosStmt)
-	}
 
 	if (takenHead != nil) || (takenTail != nil) || (elseHead != nil) || (elseTail !=nil) {
 		//fmt.Printf("IF statement at %s statement len %d \n",_file_line_(),len(statements))
