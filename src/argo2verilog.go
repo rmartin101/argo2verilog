@@ -1139,6 +1139,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 	if (subIfStmt != nil) {
 		elseStmt = elseHead 
 		ifStmt.ifElse = subIfStmt
+		testStmt.addStmtSuccessor(subIfStmt)
 		subIfStmt.addStmtSuccessor(eosStmt)
 		eosStmt.addStmtPredecessor(subIfStmt)
 	} else if (elseStmt != nil) {
@@ -1167,7 +1168,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 	}
 
 	// the else and subIf are interchangable as the 2nd clause 
-	if (elseStmt != nil) {
+	if (elseStmt != nil) && (subIfStmt == nil) {
 		testStmt.addStmtSuccessor(elseStmt)
 		elseStmt.addStmtPredecessor(testStmt)
 		elseTail.addStmtSuccessor(eosStmt)
