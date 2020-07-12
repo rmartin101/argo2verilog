@@ -70,9 +70,9 @@ func main() {
 
 	for i:= 0; i< 100; i++ {
 		fmt.Printf("I is local to this for statement %d \n",i) ;		
-	}
+	};
+	
 	fmt.Printf("I is local to this for the main function %d \n",i) ;
-
 	
 	fmt.Printf("Final sum is %d \n",sum) ;
 	fmt.Printf("End of Program \n") ;	

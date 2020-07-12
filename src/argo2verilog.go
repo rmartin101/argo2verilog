@@ -1185,7 +1185,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 // This parses a for statement.
 // It tried to get the block and forClause first. Then it walks the children of the for clause and creates new
 // statement nodes as it walks the forClause. The end of the function creates the edges between the statement nodes 
-func (l *argoListener) parseForStmt(forNode *ParseNode,funcDecl *ParseNode,forStmt *StatementNode) []*StatementNode {
+func (l *argoListener) parseForStmt(forNode *ParseNode,funcDecl *ParseNode,forStmt,eosStmt *StatementNode) []*StatementNode {
 	var funcName *ParseNode               // name of the function
 	var funcStr  string                 // name of the function
 	var forClauseNode  *ParseNode              //  if this statement has a for clause
@@ -1371,6 +1371,12 @@ func (l *argoListener) parseForStmt(forNode *ParseNode,funcDecl *ParseNode,forSt
 				postStmt.addStmtPredecessor(conditionStmt)
 				conditionStmt.addStmtSuccessor(postStmt)				
 			}
+		}
+	} else {
+		if (conditionStmt != nil) {
+			blockTail.addStmtSuccessor(conditionStmt)
+		} else {
+			blockTail.addStmtSuccessor(eosStmt)
 		}
 	}
 
@@ -1639,7 +1645,8 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		}
 		stateNode.addStmtSuccessor(eosStmt)
 		stateNode.addStmtPredecessor(predecessorStmt)
-
+		eosStmt.addStmtPredecessor(stateNode)
+		
 		// Get sub statement lists for this node
 		switch stateNode.stmtType { 
 		case "declaration": 
@@ -1668,7 +1675,7 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		case "switchStmt":
 		case "selectStmt":
 		case "forStmt":
-			slist = l.parseForStmt(subNode,funcDecl,stateNode)
+			slist = l.parseForStmt(subNode,funcDecl,stateNode,eosStmt)
 			slistLen := len(slist)			
 			if (slistLen > 0) {
 				stateNode.child = slist[0]
