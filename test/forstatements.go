@@ -68,7 +68,7 @@ func main() {
 		fmt.Printf("Looped sum is %d \n",sum) ;		
 	};
 
-	for i:= 0; i< 100; i++ {
+	for i:= 0; i< 10; i++ {
 		fmt.Printf("I is local to this for statement %d \n",i) ;		
 	};
 	
@@ -77,3 +77,4 @@ func main() {
 	fmt.Printf("Final sum is %d \n",sum) ;
 	fmt.Printf("End of Program \n") ;	
 } ;
+

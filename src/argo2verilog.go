@@ -1366,23 +1366,24 @@ func (l *argoListener) parseForStmt(forNode *ParseNode,funcDecl *ParseNode,forSt
 		if (len(blocklist) > 0) {
 			postStmt.addStmtPredecessor(blockTail)
 			blockTail.addStmtSuccessor(postStmt)
-		} else {
-			if (conditionStmt != nil) {
-				postStmt.addStmtPredecessor(conditionStmt)
-				conditionStmt.addStmtSuccessor(postStmt)				
-			}
 		}
+		if (conditionStmt != nil) {
+			postStmt.addStmtSuccessor(conditionStmt)
+		}
+
 	} else {
 		if (conditionStmt != nil) {
 			blockTail.addStmtSuccessor(conditionStmt)
+			
 		} else {
 			blockTail.addStmtSuccessor(eosStmt)
 		}
 	}
 
-	if (len(statements) > 0) {
-		statements[len(statements)-1].setStmtPredNil()
-	}
+	
+	// if (len(statements) > 0) {
+	//   statements[len(statements)-1].setStmtPredNil()
+	//  }
 	
 	return statements 
 }
