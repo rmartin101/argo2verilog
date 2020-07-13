@@ -2070,7 +2070,8 @@ func (l *argoListener) getStatementGraph() int {
 					entryNode.childID = statements[0].id
 					// make sure to add the funcDecl as a predecessor
 					entryNode.child.addStmtPredecessor(entryNode)
-					
+					lastNode := statements[len(statements)-1]
+					lastNode.addStmtSuccessor(exitNode)
 				} else {
 					fmt.Printf("Warning: Function %s has zero statements",funcStr)
 				}
@@ -2101,7 +2102,6 @@ func (l *argoListener) getStatementGraph() int {
 		stmtNode.visited = false 
 	}
 
-	
 	
 	// fix up various edges
 	l.addInternalReturnEdges()
