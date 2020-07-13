@@ -1141,6 +1141,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 		ifStmt.ifElse = subIfStmt
 		testStmt.addStmtSuccessor(subIfStmt)
 		subIfStmt.addStmtSuccessor(eosStmt)
+		subIfStmt.addStmtPredecessor(ifStmt)		
 		eosStmt.addStmtPredecessor(subIfStmt)
 	} else if (elseStmt != nil) {
 		ifStmt.ifElse = elseStmt 
