@@ -226,7 +226,8 @@ type CfgNode struct {
 	sourceRow      int               // row in the source code
 	sourceCol      int               // column in the source code
 	successors []*CfgNode             // successive statement
-        successors_taken []*CfgNode      // for For and if statements - following statement if the condition is false 
+        successors_taken []*CfgNode      // for For and if statements - following statement if the condition is false
+	test *StatementNode              // the test for an if stateent 
 	predecessors []*CfgNode          // nodes that could come before this one
         predecessors_taken []*CfgNode     // taken ifs that could come before this one
         call_target   *CfgNode           // for a return, the possible gosub sources 
@@ -1739,6 +1740,30 @@ func (l *argoListener) addInternalReturnEdges() {
 	}
 }
 
+// remove the predecessor edges for the EOS nodes
+// then add them back in based on the successor edges
+func (l *argoListener) fixEosPredecessors() {
+
+	// remove all the predecessor edges 
+	for _, stmtNode := range(l.statementGraph) {
+		if stmtNode.stmtType == "eos" {
+			stmtNode.predecessors = nil
+			stmtNode.predIDs = nil 
+		}
+	}
+
+	// if we found an EOS as a target, add a predecessor edge 
+	for _, stmtNode := range(l.statementGraph) {
+		if len(stmtNode.successors) > 0 {
+			succNode := stmtNode.successors[0]
+			if succNode.stmtType == "eos" {
+				succNode.addStmtPredecessor(stmtNode)
+			}
+		}
+	}
+
+}
+
 // get a function statement Node by the functions name 
 func (l *argoListener) getFunctionStmtEntry(funcName string) *StatementNode {
 	for _, stmtNode := range(l.statementGraph) {
@@ -2103,7 +2128,9 @@ func (l *argoListener) getStatementGraph() int {
 		stmtNode.visited = false 
 	}
 
-	
+	// fix the target end-of-statements predecessors 
+	l.fixEosPredecessors() 
+
 	// fix up various edges
 	l.addInternalReturnEdges()
 	// Add call and return edges
@@ -2141,28 +2168,20 @@ func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode)
 // the statement
 // FIXME: add return error code
 func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
-	var nextStmt *StatementNode
-	
-	// the child statement is the next logical statement in the graph
-	nextStmt = nil
-	if (stmt.child != nil) && (stmt.childID > 0) {
-		nextStmt = stmt.child
-	} else if (len(stmt.successors) > 0) {
-		nextStmt = stmt.successors[0]
-	}
+	var succStmt, predStmt *StatementNode
 
-	if (nextStmt == nil) {
-		fmt.Printf("Error at %s no successor for statement node %d \n",_file_line_(),stmt.id)
-		return 
+	succStmt = nil
+	predStmt = nil
+	
+	if len(stmt.successors) >0 {
+		succStmt = stmt.successors[0]
+		cnode.successors = append(cnode.successors,succStmt.cfgNodes...)
 	}
 	
-	if ( len(nextStmt.cfgNodes) >0 ) {
-		cnode.successors = append(cnode.successors,nextStmt.cfgNodes...)
-		nextStmt.cfgNodes[0].predecessors = append(nextStmt.cfgNodes[0].predecessors,cnode)
-	} else {
-		fmt.Printf("Error at %s no successor for successor stmt node %d \n",_file_line_(),nextStmt.id)
+	if len(stmt.predecessors ) >0 {
+		predStmt = stmt.predecessors[0]
+		cnode.predecessors = append(cnode.predecessors,predStmt.cfgNodes...)
 	}
-
 }
 
 // build the control flow graph and data flow from the statement graph
@@ -2200,6 +2219,7 @@ func (l *argoListener) forwardCfgPass() {
 	for _, currentStmt = range(l.statementGraph) {
 		currentStmt.visited = false 
 		_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+		currentCfgNode.cfgType = currentStmt.stmtType
 		l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
 	}
 	
@@ -2253,31 +2273,8 @@ func (l *argoListener) forwardCfgPass() {
 		// and end-of-statement is the end of a code block, i.e., a { ... }
 		// we set the successor edge to the successor of the parent node 
 		if (currentStmt.stmtType == "eos" ) {
-			var nextStmt,parentStmt *StatementNode
-			
 			currentCfgNode.cfgType = "eos"
-			parentStmt = currentStmt.parent
-			nextStmt = nil 
-			
-			if (parentStmt != nil) {
-				if ( len(parentStmt.successors) > 0)  {
-					nextStmt = parentStmt.successors[0]
-				}
-			}
-			
-			if (nextStmt == nil) {
-				fmt.Printf("Error at %s no successor for stmt %d parent node %d \n",_file_line_(),currentStmt.id,parentStmt.id)
-				continue 
-			}
-
-			currentCfgNode.successors = append(currentCfgNode.successors,nextStmt.cfgNodes...)
-			if ( len(currentStmt.predecessors) > 0) { 
-				predStmt := currentStmt.predecessors[0] 
-				currentCfgNode.predecessors = append(currentCfgNode.predecessors,predStmt.cfgNodes[0])
-			} else {
-				fmt.Printf("Error at %s no cfg predecessor for stmt %d \n",_file_line_(),currentStmt.id)
-				continue 
-			}
+			addLinearToCfg(currentCfgNode,currentStmt)
 		}
 		
 		// 
@@ -2336,45 +2333,41 @@ func (l *argoListener) forwardCfgPass() {
 		if (currentStmt.stmtType == "ifStmt") {
 			// create the test node and the the taken node.
 			currentCfgNode.cfgType = "ifStmt"
+			var simpleCfgNode *CfgNode 
 
 			predStmt := currentStmt.predecessors[0]
-			succStmt := currentStmt.successors[0]
+			//succStmt := currentStmt.successors[0]
 			ifSimple := currentStmt.ifSimple 
 			ifTest := currentStmt.ifTest
 			ifTaken := currentStmt.ifTaken
 			ifElse := currentStmt.ifElse
 
-			currentCfgNode.predecessors = append(currentCfgNode.predecessors,predStmt.cfgNodes...)
-			
+			currentCfgNode.test = ifTest 
+
+			// put the simple statement ahead of the main if statement if it exists 
 			if (ifSimple != nil) {
-				currentStmt.cfgNodes[0].successors =
-					append(currentStmt.cfgNodes[0].successors,ifSimple.cfgNodes...)
-				ifSimple.cfgNodes[0].predecessors =
-					append(ifSimple.cfgNodes[0].predecessors,currentStmt.cfgNodes[0])
-				ifSimple.cfgNodes[0].successors =
-					append(ifSimple.cfgNodes[0].successors,ifSimple.cfgNodes...)
 				ifSimple.visited = true
+				simpleCfgNode = ifSimple.cfgNodes[0]
+				simpleCfgNode.predecessors = append(simpleCfgNode.predecessors,predStmt.cfgNodes[0])
+				simpleCfgNode.successors = append(simpleCfgNode.successors,currentCfgNode)
+				currentCfgNode.predecessors = append(currentCfgNode.predecessors,simpleCfgNode)
+				
 			} else {
-				currentStmt.cfgNodes[0].successors =
-					append(currentStmt.cfgNodes[0].successors,ifTest.cfgNodes...)
+				currentCfgNode.predecessors = append(currentCfgNode.predecessors,predStmt.cfgNodes[0])
 			}
-
-
+			
 			if (ifTaken != nil) {
-				ifTest.cfgNodes[0].successors_taken = append(ifTest.cfgNodes[0].successors_taken,ifTaken.cfgNodes...)
+				currentCfgNode.successors_taken = append(currentCfgNode.successors_taken,ifTaken.cfgNodes...)
 			} else {
 				fmt.Printf("Error: If statement id:%d no taken clause\n",currentStmt.id)
 				continue 
 			}
 
 			if (ifElse != nil) {
-				ifTest.cfgNodes[0].successors = append(ifTest.cfgNodes[0].successors,ifElse.cfgNodes...)
-			} else {
-				ifTest.cfgNodes[0].successors = append(ifTest.cfgNodes[0].successors,succStmt.cfgNodes...)
-			}
+				currentCfgNode.successors = append(currentCfgNode.successors,ifElse.cfgNodes...)
+			} 
 			
-			
-		}		
+		}	
 		if (currentStmt.stmtType == "incDecStmt" ) {
 			currentCfgNode.cfgType = "incDecStmt"
 			addLinearToCfg(currentCfgNode,currentStmt)
