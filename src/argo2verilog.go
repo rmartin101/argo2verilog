@@ -201,10 +201,12 @@ type StatementNode struct {
 	ifTest   *StatementNode     // The test expression 
 	ifTaken  *StatementNode     // The enclosed block of sub-statements for the taken xpart of an if
 	ifElse   *StatementNode     // The enclosed block of sub-statements for the else clause
+	ifRoot   *StatementNode    // root if stmt if this a simple, test, taken or else node 
 	forInit *StatementNode        // the for pre-statement 
 	forCond   *StatementNode     // the for test expression
 	forPost   *StatementNode      // the for post-statement
-	forBlock  *StatementNode     // the main block of the for statement 
+	forBlock  *StatementNode     // the main block of the for statement
+	forRoot   *StatementNode       // root for stmt if this is an init, cond post or block 
 	caseList   [][]*StatementNode  // list of statements for a switch or select statement
 	callTargets []*StatementNode     // regular caller target statement (funcDecl) 
 	goTargets   []*StatementNode     // target of go statemetn (funcDecl)
@@ -222,7 +224,9 @@ type CfgNode struct {
 	cfgType string                   // the type of this node. assignment, test, call, return
 	cannName string                  // cannonical name for this node: package,function,sourceRow,sourceCol,subNum
 	statement *StatementNode         // the go statement for this control node
-	stmtID    int                    // ID number of the statement node 
+	stmtID    int                    // ID number of the statement node
+	subStmt   *StatementNode         // the sub-statement for If, For and Case statements
+	subStmtID  int                   // the sub-statementID
 	sourceRow      int               // row in the source code
 	sourceCol      int               // column in the source code
 	successors []*CfgNode             // successive statement
@@ -1122,18 +1126,23 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 	if (testStmt == nil) {
 		fmt.Printf("Error! at %s no test with if statement at AST node id %d\n", _file_line_(),ifNode.id)
 		return nil 
+	}  else {
+		testStmt.ifRoot = ifStmt
 	}
 
 	if (takenStmt == nil) {
 		fmt.Printf("Error! at %s no taken block with if statement at AST node id %d\n", _file_line_(),ifNode.id)
 		return nil 
+	} else {
+		takenStmt.ifRoot = ifStmt 
 	}
 
 
 	// santiy check, both the else an sub if statement can not be set 
 	if (elseStmt != nil) && (subIfStmt != nil) {
 		fmt.Printf("Error! at %s both else and if sub-statement set AST node id %d\n", _file_line_(),ifNode.id)
-		fmt.Printf("Error! at %s statement len %d %s\n",_file_line_(),len(statements),statements)		
+		fmt.Printf("Error! at %s statement len %d %s\n",_file_line_(),len(statements),statements)
+		elseStmt.ifRoot = ifStmt 		
 	}
 
 	// if we passed the above sanity check/assertion, we can set the sub-if statement 
@@ -1144,8 +1153,10 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 		subIfStmt.addStmtSuccessor(eosStmt)
 		subIfStmt.addStmtPredecessor(ifStmt)		
 		eosStmt.addStmtPredecessor(subIfStmt)
+		subIfStmt.ifRoot = ifStmt 
 	} else if (elseStmt != nil) {
-		ifStmt.ifElse = elseStmt 
+		ifStmt.ifElse = elseStmt
+
 	}
 
 	// This sets the pred and successor links for the simple statement 
@@ -1155,6 +1166,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 
 		simpleStmt.addStmtSuccessor(testStmt)
 		testStmt.addStmtPredecessor(simpleStmt)
+		simpleStmt.ifRoot = ifStmt 
 	}
 
 	// there must always be a test and taken statement
@@ -1162,6 +1174,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 	testStmt.addStmtSuccessor(takenStmt)
 	takenStmt.addStmtPredecessor(testStmt)
 	//takenStmt.addStmtSuccessor(eosStmt)
+	takenStmt.ifRoot = ifStmt 
 
 	statements = append(statements,takenStmt)
 
@@ -1351,13 +1364,15 @@ func (l *argoListener) parseForStmt(forNode *ParseNode,funcDecl *ParseNode,forSt
 			initStmt.addStmtSuccessor(conditionStmt)
 			conditionStmt.addStmtPredecessor(initStmt)
 		}
+		initStmt.forRoot = forStmt 
 	}
 
 	if (conditionStmt != nil) {
 		statements = append(statements,conditionStmt)
 		// there must always be a block statement 
 		conditionStmt.addStmtSuccessor(blockHead)
-		blockHead.addStmtPredecessor(conditionStmt) 
+		blockHead.addStmtPredecessor(conditionStmt)
+		conditionStmt.forRoot = forStmt 
 	}
 	if (len(blocklist) > 0) {
 		statements = append(statements,blocklist...)
@@ -1365,6 +1380,7 @@ func (l *argoListener) parseForStmt(forNode *ParseNode,funcDecl *ParseNode,forSt
 	
 	if (postStmt != nil) {
 		statements = append(statements,postStmt)
+		postStmt.forRoot = forStmt 
 		if (len(blocklist) > 0) {
 			postStmt.addStmtPredecessor(blockTail)
 			blockTail.addStmtSuccessor(postStmt)
@@ -2214,182 +2230,204 @@ func (l *argoListener) forwardCfgPass() {
 	var currentStmt *StatementNode 
 	var currentCfgNode *CfgNode 
 
-	// iniital loop creates a CFG node for every statementnode
-	// also sets visited to false for the forward pass 
+
+	// create all the control-flow graph nodes
+	// add edges later after all nodes are created 
+	for _, currentStmt = range(l.statementGraph) {
+
+		if (currentStmt.visited == true) {
+			continue ;
+		}
+		
+		currentStmt.visited = true 
+
+		if (currentStmt.ifRoot != nil ) || (currentStmt.forRoot != nil ) {
+			continue;
+		}
+		
+		switch currentStmt.stmtType {
+		case "assignment":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "assignment"
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+		case "breakStmt":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "break"			
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+		case "continueStmt":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "continue"						
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)			
+		case "eos":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "eos"						
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+		case "expression":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "expression"						
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+		case "expressionStmt":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "expression"						
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+		case "forStmt":
+
+			if (currentStmt.forInit != nil) { 
+				_, forCfgInit := l.newCFGnode(currentStmt,0)
+				forCfgInit.cfgType = "forInit"
+				forCfgInit.subStmt = currentStmt.forInit
+				forCfgInit.subStmtID = currentStmt.forInit.id 
+				l.controlFlowGraph = append(l.controlFlowGraph,forCfgInit)				
+				currentStmt.cfgNodes = append(currentStmt.cfgNodes,forCfgInit);
+				currentStmt.forInit.visited = true 
+			}
+			if (currentStmt.forCond != nil ) {
+				_, forCfgCond := l.newCFGnode(currentStmt, 1)
+				forCfgCond.cfgType = "forCond"
+				forCfgCond.subStmt = currentStmt.forCond
+				forCfgCond.subStmtID = currentStmt.forCond.id 
+	
+				l.controlFlowGraph = append(l.controlFlowGraph,forCfgCond)				
+				currentStmt.cfgNodes = append(currentStmt.cfgNodes,forCfgCond);
+				currentStmt.forCond.visited = true 
+
+			}
+			if (currentStmt.forPost != nil ) {
+				_, forCfgPost := l.newCFGnode(currentStmt, 2)
+				forCfgPost.cfgType = "forPost"
+				forCfgPost.subStmt = currentStmt.forPost
+				forCfgPost.subStmtID = currentStmt.forPost.id 
+				l.controlFlowGraph = append(l.controlFlowGraph,forCfgPost)
+				currentStmt.forPost.visited = true 
+			}
+
+		case "FuncExit":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "funcExit"
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+		case "functionDecl":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "funcEntry"
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+		case "goStmt":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "goStmt"
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)			
+		case "ifStmt":
+
+			if (currentStmt.ifSimple != nil) { 
+				_, ifSimpleCfg := l.newCFGnode(currentStmt,0)
+				ifSimpleCfg.cfgType = "ifSimple"
+				ifSimpleCfg.subStmt = currentStmt.ifSimple
+				ifSimpleCfg.subStmtID = currentStmt.ifSimple.id 
+				l.controlFlowGraph = append(l.controlFlowGraph,ifSimpleCfg)				
+				currentStmt.cfgNodes = append(currentStmt.cfgNodes,ifSimpleCfg);
+				currentStmt.ifSimple.visited = true 
+			}
+			
+			if (currentStmt.ifTest != nil ) {
+				_, ifTestCfg := l.newCFGnode(currentStmt, 1)
+				ifTestCfg.cfgType = "ifTest"
+				ifTestCfg.subStmt = currentStmt.ifTest
+				ifTestCfg.subStmtID = currentStmt.ifTest.id 
+				l.controlFlowGraph = append(l.controlFlowGraph,ifTestCfg)				
+				currentStmt.cfgNodes = append(currentStmt.cfgNodes,ifTestCfg);
+				currentStmt.ifTest.visited = true 
+
+			}
+			
+		case "incDecStmt":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "incDec"
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+		case "returnStmt":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "return"
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+		case "sendStmt":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "send"
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)			
+		case "shortVarDecl":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "shortVarDecl"
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)						
+		case "unaryExpr":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "unaryExpr"
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+		default:
+			fmt.Printf("Error at %s unknown statement type: %s \n",_file_line_(),currentStmt.id)			
+		}
+
+		
+	}
+
+
 	for _, currentStmt = range(l.statementGraph) {
 		currentStmt.visited = false 
-		_, currentCfgNode = l.newCFGnode(currentStmt, 0)
-		currentCfgNode.cfgType = currentStmt.stmtType
-		l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
 	}
-	
 	// proceeded linearly down the sequence of statements
 	// and create needed edges
 	for _, currentStmt = range(l.statementGraph) {
-
-		// At this point in the forward pass there should only by single cfg node 
-		if (len(currentStmt.cfgNodes) != 1) {
-			fmt.Printf("Error at %s no control node for statement node %d \n",_file_line_(),currentStmt.id)
-			continue 
-		}
-
 		if (currentStmt.visited == true) {
 			continue 
 		}
-
-		currentStmt.visited = true
 		
-		currentCfgNode = currentStmt.cfgNodes[0]
-		if (currentStmt.stmtType == "assignment") {	
-			currentCfgNode.cfgType = "assignment"
+		currentStmt.visited = true
+		if len(currentStmt.cfgNodes) == 0 {
+			continue 
+		} else { 
+			currentCfgNode = currentStmt.cfgNodes[0]
+		}
+
+		switch currentStmt.stmtType {
+			
+		case "assignment":
 			addLinearToCfg(currentCfgNode,currentStmt)
 			// get the write variable and add it to the list of variables 
 			for _, varNode := range( currentStmt.writeVars) {
 				varNode.cfgNodes = append(varNode.cfgNodes,currentCfgNode) 
 			}
-			
-		}
-		
-		// find the outer statement and break to there.
-		// look for the parent for statement
-		// FIXME: what if the parent has multiple sucessors? 
-		if (currentStmt.stmtType == "breakStmt") {
-			currentCfgNode.cfgType = "break"
+		case "breakStmt":
 			parentStmt := currentStmt.parent
 			parentSuccessor := parentStmt.successors[0]
 			targetSuccessor  := parentSuccessor.cfgNodes[0]
 			currentCfgNode.successors = append(currentCfgNode.successors,targetSuccessor)
-		}
-		
-		// find the outer loop and return to loop head
-		// continues go to the parent for statement 
-		if (currentStmt.stmtType == "continueStmt" ) {
-			currentCfgNode.cfgType = "continue"
+
+		case "continueStmt":
 			parentStmt := currentStmt.parent
 			targetSuccessor  := parentStmt.cfgNodes[0]
 			currentCfgNode.successors = append(currentCfgNode.successors,targetSuccessor)
-		}
-
-		// and end-of-statement is the end of a code block, i.e., a { ... }
-		// we set the successor edge to the successor of the parent node 
-		if (currentStmt.stmtType == "eos" ) {
-			currentCfgNode.cfgType = "eos"
-			addLinearToCfg(currentCfgNode,currentStmt)
-		}
-		
-		// 
-		if (currentStmt.stmtType == "expression" ) {
-			currentCfgNode.cfgType = "expression"
-			addLinearToCfg(currentCfgNode,currentStmt)
-		}
-		
-		if (currentStmt.stmtType == "expressionStmt") {
-			currentCfgNode.cfgType = "expressionStmt"
-			addLinearToCfg(currentCfgNode,currentStmt)
-		}
-		
-		if (currentStmt.stmtType == "forStmt") {
-			currentCfgNode.cfgType = "for"
-		}
-
-
-		// if a function has multiple entry/exit nodes, we will need to split the CFG
-		// graph into separate disjoint section, one for each entry/exit pair 
-		if (currentStmt.stmtType == "FuncExit") {
-			currentCfgNode.cfgType = "funcExit"
 			
-			for _, succStmt := range currentStmt.successors { 
-				currentCfgNode.successors = append(currentCfgNode.successors,succStmt.cfgNodes...)
-			}
-			
-			for _, predStmt := range currentStmt.predecessors { 				
-				currentCfgNode.predecessors = append(currentCfgNode.predecessors,predStmt.cfgNodes...)
-			}
-		}
-
-		// the child is the next logical statement 
-		if (currentStmt.stmtType == "functionDecl" ) {
-			currentCfgNode.cfgType = "functionDecl"
-			if (currentStmt.child != nil) {
-				childStmt := currentStmt.child
-				currentCfgNode.successors = append(currentCfgNode.successors,childStmt.cfgNodes...)
-			}
-
-			// FIXME: if a function has multiple entry points, make a copy of the local
-			// graph so every call point gets a copy of the function. Similar to inlined function
-			// calls. This code allows only a single copy of a function active at a time 
-			if ( len(currentStmt.predecessors) >0) {
-				for _, stmt := range currentStmt.predecessors { 
-					currentCfgNode.predecessors = append(currentCfgNode.predecessors,stmt.cfgNodes...)
-					
-				}
-			}
-		}
-		
-		if (currentStmt.stmtType == "goStmt") {
-			currentCfgNode.cfgType = "goStmt"
-		}
-
-		if (currentStmt.stmtType == "ifStmt") {
-			// create the test node and the the taken node.
-			currentCfgNode.cfgType = "ifStmt"
-			var simpleCfgNode *CfgNode 
-
-			predStmt := currentStmt.predecessors[0]
-			//succStmt := currentStmt.successors[0]
-			ifSimple := currentStmt.ifSimple 
-			ifTest := currentStmt.ifTest
-			ifTaken := currentStmt.ifTaken
-			ifElse := currentStmt.ifElse
-
-			currentCfgNode.test = ifTest 
-
-			// put the simple statement ahead of the main if statement if it exists 
-			if (ifSimple != nil) {
-				ifSimple.visited = true
-				simpleCfgNode = ifSimple.cfgNodes[0]
-				simpleCfgNode.predecessors = append(simpleCfgNode.predecessors,predStmt.cfgNodes[0])
-				simpleCfgNode.successors = append(simpleCfgNode.successors,currentCfgNode)
-				currentCfgNode.predecessors = append(currentCfgNode.predecessors,simpleCfgNode)
-				
-			} else {
-				currentCfgNode.predecessors = append(currentCfgNode.predecessors,predStmt.cfgNodes[0])
-			}
-			
-			if (ifTaken != nil) {
-				currentCfgNode.successors_taken = append(currentCfgNode.successors_taken,ifTaken.cfgNodes...)
-			} else {
-				fmt.Printf("Error: If statement id:%d no taken clause\n",currentStmt.id)
-				continue 
-			}
-
-			if (ifElse != nil) {
-				currentCfgNode.successors = append(currentCfgNode.successors,ifElse.cfgNodes...)
-			} 
-			
-		}	
-		if (currentStmt.stmtType == "incDecStmt" ) {
-			currentCfgNode.cfgType = "incDecStmt"
+		case "eos":
 			addLinearToCfg(currentCfgNode,currentStmt)
-		}
-		
-		if (currentStmt.stmtType == "returnStmt" ) {
-			currentCfgNode.cfgType = "returnStmt"
-		}
-		
-		if (currentStmt.stmtType == "sendStmt" ) {
-			currentCfgNode.cfgType = "sendStmt"
+		case "expression":
 			addLinearToCfg(currentCfgNode,currentStmt)
-		}
-		
-		if (currentStmt.stmtType == "shortVarDecl" ) {
-			currentCfgNode.cfgType = "shortVarDecl"
+		case "expressionStmt":
 			addLinearToCfg(currentCfgNode,currentStmt)
-		}
-		
-		if (currentStmt.stmtType == "unaryExpr" ) {
-			currentCfgNode.cfgType = "unaryExpr"
+		case "forStmt":
 			addLinearToCfg(currentCfgNode,currentStmt)
+		case "FuncExit":
+			addLinearToCfg(currentCfgNode,currentStmt)
+		case "functionDecl":
+			addLinearToCfg(currentCfgNode,currentStmt)
+		case "goStmt":
+			addLinearToCfg(currentCfgNode,currentStmt)
+		case "ifStmt":
+			addLinearToCfg(currentCfgNode,currentStmt)
+		case "incDecStmt":
+			addLinearToCfg(currentCfgNode,currentStmt)
+		case "returnStmt":
+			addLinearToCfg(currentCfgNode,currentStmt)
+		case "sendStmt":
+			addLinearToCfg(currentCfgNode,currentStmt)
+		case "shortVarDecl":
+			addLinearToCfg(currentCfgNode,currentStmt)
+		case "unaryExpr":
+			addLinearToCfg(currentCfgNode,currentStmt)
+		default:
+			fmt.Printf("Error at %s unknown statement type: %s \n",_file_line_(),currentStmt.id)			
 		}
 
 	}
@@ -2608,6 +2646,14 @@ func (l *argoListener) printStatementGraph(format string) {
 			j++
 		}		
 
+		if ((node.ifRoot != nil)  && format == "text") {
+			fmt.Printf("ifroot: %d ",node.ifRoot.id)
+		}
+
+		if ((node.forRoot != nil) && format == "text") {
+			fmt.Printf("forroot: %d ",node.forRoot.id)			
+		}
+					
 		if len(node.callTargets) >0 {
 			if (format == "text") {			
 				fmt.Printf(" callto: ")
@@ -2625,6 +2671,7 @@ func (l *argoListener) printStatementGraph(format string) {
 				j++
 			}		
 		}
+
 
 		if len(node.returnTargets) >0 {
 			if (format == "text") {			
