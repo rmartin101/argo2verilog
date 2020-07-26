@@ -2356,8 +2356,12 @@ func (l *argoListener) forwardCfgPass() {
 			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
 			currentCfgNode.cfgType = "unaryExpr"
 			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+		case "startNode":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
+			currentCfgNode.cfgType = "startNode"
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
 		default:
-			fmt.Printf("Error at %s unknown statement type: %s \n",_file_line_(),currentStmt.id)			
+			fmt.Printf("Error at %s unknown statement type: %s \n",_file_line_(),currentStmt.stmtType)
 		}
 
 		
@@ -2382,7 +2386,9 @@ func (l *argoListener) forwardCfgPass() {
 		}
 
 		switch currentStmt.stmtType {
-			
+
+		case "startNode":
+			Pass() // fixme 
 		case "assignment":
 			addLinearToCfg(currentCfgNode,currentStmt)
 			// get the write variable and add it to the list of variables 
@@ -2415,7 +2421,37 @@ func (l *argoListener) forwardCfgPass() {
 		case "goStmt":
 			addLinearToCfg(currentCfgNode,currentStmt)
 		case "ifStmt":
-			addLinearToCfg(currentCfgNode,currentStmt)
+			var simpleCfg,testCfg, takenCfg, elseCfg *CfgNode
+
+			// add the simple statement to the front of the test 
+			if (currentStmt.ifSimple != nil) {
+				simpleCfg =  currentStmt.cfgNodes[0]
+				testCfg =   currentStmt.cfgNodes[1]
+				simpleCfg.successors = 	append(simpleCfg.successors, testCfg)
+				testCfg.predecessors = 	append(testCfg.predecessors,simpleCfg) 
+			} else {
+				testCfg =   currentStmt.cfgNodes[0]				
+			}
+
+			if (len(currentStmt.ifTaken.cfgNodes) > 0) {
+				takenCfg = currentStmt.ifTaken.cfgNodes[0]
+			} else {
+				fmt.Printf("Error at %s ifstmt %d haa no cfg node \n",_file_line_(),currentStmt.id)
+			}
+
+			
+			//create the links to the test node 
+			testCfg.successors_taken = append(takenCfg.successors_taken,takenCfg)
+			if (currentStmt.ifElse != nil) {
+				if (len(currentStmt.ifElse.cfgNodes) > 0) {
+					elseCfg = currentStmt.ifElse.cfgNodes[0]
+				} else {
+					fmt.Printf("Error at %s ifstmt %d else haa no cfg node %s \n",_file_line_(),currentStmt.id)
+				}
+				testCfg.successors = append(takenCfg.successors,elseCfg)
+			} 
+
+			
 		case "incDecStmt":
 			addLinearToCfg(currentCfgNode,currentStmt)
 		case "returnStmt":
