@@ -1134,7 +1134,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 		fmt.Printf("Error! at %s no taken block with if statement at AST node id %d\n", _file_line_(),ifNode.id)
 		return nil 
 	} else {
-		takenStmt.ifRoot = ifStmt 
+		// takenStmt.ifRoot = ifStmt 
 	}
 
 
@@ -1142,7 +1142,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 	if (elseStmt != nil) && (subIfStmt != nil) {
 		fmt.Printf("Error! at %s both else and if sub-statement set AST node id %d\n", _file_line_(),ifNode.id)
 		fmt.Printf("Error! at %s statement len %d %s\n",_file_line_(),len(statements),statements)
-		elseStmt.ifRoot = ifStmt 		
+		//elseStmt.ifRoot = ifStmt 		
 	}
 
 	// if we passed the above sanity check/assertion, we can set the sub-if statement 
@@ -1153,7 +1153,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 		subIfStmt.addStmtSuccessor(eosStmt)
 		subIfStmt.addStmtPredecessor(ifStmt)		
 		eosStmt.addStmtPredecessor(subIfStmt)
-		subIfStmt.ifRoot = ifStmt 
+		//subIfStmt.ifRoot = ifStmt 
 	} else if (elseStmt != nil) {
 		ifStmt.ifElse = elseStmt
 
@@ -1174,7 +1174,7 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 	testStmt.addStmtSuccessor(takenStmt)
 	takenStmt.addStmtPredecessor(testStmt)
 	//takenStmt.addStmtSuccessor(eosStmt)
-	takenStmt.ifRoot = ifStmt 
+	//takenStmt.ifRoot = ifStmt 
 
 	statements = append(statements,takenStmt)
 
@@ -2229,11 +2229,11 @@ func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
 func (l *argoListener) forwardCfgPass() {
 	var currentStmt *StatementNode 
 	var currentCfgNode *CfgNode 
-
+	var i int 
 
 	// create all the control-flow graph nodes
 	// add edges later after all nodes are created 
-	for _, currentStmt = range(l.statementGraph) {
+	for i, currentStmt = range(l.statementGraph) {
 
 		if (currentStmt.visited == true) {
 			continue ;
@@ -2242,6 +2242,7 @@ func (l *argoListener) forwardCfgPass() {
 		currentStmt.visited = true 
 
 		if (currentStmt.ifRoot != nil ) || (currentStmt.forRoot != nil ) {
+			// need assertion to check if the root is pointing to a simple or test statement only 
 			continue;
 		}
 		
@@ -2276,9 +2277,8 @@ func (l *argoListener) forwardCfgPass() {
 				_, forCfgInit := l.newCFGnode(currentStmt,0)
 				forCfgInit.cfgType = "forInit"
 				forCfgInit.subStmt = currentStmt.forInit
-				forCfgInit.subStmtID = currentStmt.forInit.id 
+				forCfgInit.subStmtID = currentStmt.forInit.id
 				l.controlFlowGraph = append(l.controlFlowGraph,forCfgInit)				
-				currentStmt.cfgNodes = append(currentStmt.cfgNodes,forCfgInit);
 				currentStmt.forInit.visited = true 
 			}
 			if (currentStmt.forCond != nil ) {
@@ -2286,9 +2286,7 @@ func (l *argoListener) forwardCfgPass() {
 				forCfgCond.cfgType = "forCond"
 				forCfgCond.subStmt = currentStmt.forCond
 				forCfgCond.subStmtID = currentStmt.forCond.id 
-	
 				l.controlFlowGraph = append(l.controlFlowGraph,forCfgCond)				
-				currentStmt.cfgNodes = append(currentStmt.cfgNodes,forCfgCond);
 				currentStmt.forCond.visited = true 
 
 			}
@@ -2297,7 +2295,6 @@ func (l *argoListener) forwardCfgPass() {
 				forCfgPost.cfgType = "forPost"
 				forCfgPost.subStmt = currentStmt.forPost
 				forCfgPost.subStmtID = currentStmt.forPost.id 
-				l.controlFlowGraph = append(l.controlFlowGraph,forCfgPost)
 				currentStmt.forPost.visited = true 
 			}
 
@@ -2321,7 +2318,6 @@ func (l *argoListener) forwardCfgPass() {
 				ifSimpleCfg.subStmt = currentStmt.ifSimple
 				ifSimpleCfg.subStmtID = currentStmt.ifSimple.id 
 				l.controlFlowGraph = append(l.controlFlowGraph,ifSimpleCfg)				
-				currentStmt.cfgNodes = append(currentStmt.cfgNodes,ifSimpleCfg);
 				currentStmt.ifSimple.visited = true 
 			}
 			
@@ -2331,7 +2327,6 @@ func (l *argoListener) forwardCfgPass() {
 				ifTestCfg.subStmt = currentStmt.ifTest
 				ifTestCfg.subStmtID = currentStmt.ifTest.id 
 				l.controlFlowGraph = append(l.controlFlowGraph,ifTestCfg)				
-				currentStmt.cfgNodes = append(currentStmt.cfgNodes,ifTestCfg);
 				currentStmt.ifTest.visited = true 
 
 			}
@@ -2361,7 +2356,7 @@ func (l *argoListener) forwardCfgPass() {
 			currentCfgNode.cfgType = "startNode"
 			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
 		default:
-			fmt.Printf("Error at %s unknown statement type: %s \n",_file_line_(),currentStmt.stmtType)
+			fmt.Printf("Error at %s node %d unknown statement type: %s \n",_file_line_(),i,currentStmt.stmtType)
 		}
 
 		
@@ -2372,7 +2367,7 @@ func (l *argoListener) forwardCfgPass() {
 		currentStmt.visited = false 
 	}
 	// proceeded linearly down the sequence of statements
-	// and create needed edges
+	// and create edges in the control flow graph 
 	for _, currentStmt = range(l.statementGraph) {
 		if (currentStmt.visited == true) {
 			continue 
@@ -2388,7 +2383,7 @@ func (l *argoListener) forwardCfgPass() {
 		switch currentStmt.stmtType {
 
 		case "startNode":
-			Pass() // fixme 
+			addLinearToCfg(currentCfgNode,currentStmt)
 		case "assignment":
 			addLinearToCfg(currentCfgNode,currentStmt)
 			// get the write variable and add it to the list of variables 
@@ -2436,21 +2431,23 @@ func (l *argoListener) forwardCfgPass() {
 			if (len(currentStmt.ifTaken.cfgNodes) > 0) {
 				takenCfg = currentStmt.ifTaken.cfgNodes[0]
 			} else {
-				fmt.Printf("Error at %s ifstmt %d haa no cfg node \n",_file_line_(),currentStmt.id)
+				fmt.Printf("Error: at %s ifstmt taken %d has no cfg node \n",_file_line_(),currentStmt.id)
 			}
 
 			
 			//create the links to the test node 
-			testCfg.successors_taken = append(takenCfg.successors_taken,takenCfg)
+			testCfg.successors_taken = append(testCfg.successors_taken,takenCfg)
 			if (currentStmt.ifElse != nil) {
 				if (len(currentStmt.ifElse.cfgNodes) > 0) {
 					elseCfg = currentStmt.ifElse.cfgNodes[0]
 				} else {
-					fmt.Printf("Error at %s ifstmt %d else haa no cfg node %s \n",_file_line_(),currentStmt.id)
+					fmt.Printf("Error at %s ifstmt else %d else haa no cfg node \n",_file_line_(),currentStmt.id)
 				}
 				testCfg.successors = append(takenCfg.successors,elseCfg)
-			} 
-
+			} else {
+				succStmt := currentStmt.successors[0]
+				testCfg.successors = append(takenCfg.successors,succStmt.cfgNodes[0])
+			}
 			
 		case "incDecStmt":
 			addLinearToCfg(currentCfgNode,currentStmt)
@@ -2487,7 +2484,7 @@ func (l *argoListener) printControlFlowGraph() {
 	sort.Slice(l.controlFlowGraph, func(i, j int) bool {
 		return l.controlFlowGraph[i].id < l.controlFlowGraph[j].id
 	})
-	
+		
 	for i, node := range l.controlFlowGraph {
 		fmt.Printf("Cntl: %d: ID:%d stmt:%d :%s: %s succ: ", i,node.id,node.statement.id,node.cannName,node.cfgType)
 
