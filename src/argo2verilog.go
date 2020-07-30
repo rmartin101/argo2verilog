@@ -2191,12 +2191,16 @@ func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
 	
 	if len(stmt.successors) >0 {
 		succStmt = stmt.successors[0]
-		cnode.successors = append(cnode.successors,succStmt.cfgNodes...)
+		if (len(succStmt.cfgNodes) > 0) {
+			cnode.successors = append(cnode.successors,succStmt.cfgNodes[0])
+		}
 	}
 	
-	if len(stmt.predecessors ) >0 {
+	if len(stmt.predecessors ) > 0 {
 		predStmt = stmt.predecessors[0]
-		cnode.predecessors = append(cnode.predecessors,predStmt.cfgNodes...)
+		if (len(predStmt.cfgNodes) > 0) {
+			cnode.predecessors = append(cnode.predecessors,predStmt.cfgNodes[len(predStmt.cfgNodes)-1])
+		}
 	}
 }
 
