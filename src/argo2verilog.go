@@ -208,7 +208,8 @@ type StatementNode struct {
 	forBlock  *StatementNode     // the main block of the for statement
 	forRoot   *StatementNode       // root for stmt if this is an init, cond post or block 
 	caseList   [][]*StatementNode  // list of statements for a switch or select statement
-	callTargets []*StatementNode     // regular caller target statement (funcDecl) 
+	callTargets []*StatementNode     // regular caller target statement (funcDecl)
+	callers []*StatementNode         // which statements call into this node
 	goTargets   []*StatementNode     // target of go statemetn (funcDecl)
 	returnTargets []*StatementNode  // list of return targets
 	cfgNodes    []*CfgNode          // list of control flow graph nodes for this statement 
@@ -1829,7 +1830,8 @@ func (l *argoListener) addCallandReturnEdges() {
 					// if we can't find the function, then abort this node 
 					if (funcEntryNode != nil) {
 						// add predecessor to the function entry node 
-						funcEntryNode.addStmtPredecessor(stmtNode)
+						// funcEntryNode.addStmtPredecessor(stmtNode)
+						funcEntryNode.callers = append(funcEntryNode.callers,stmtNode)
 						// non-go statements add a return edge
 						if (stmtNode.stmtType != "goStmt") {
 							stmtNode.callTargets=append(stmtNode.callTargets,funcEntryNode)
@@ -2184,27 +2186,41 @@ func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode)
 // the statement
 // FIXME: add return error code
 func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
-	var succStmt, predStmt *StatementNode
+	var succStmt, predStmt, prev *StatementNode
 
 	succStmt = nil
 	predStmt = nil
 
+	// if this is a for or if sub-statement, then skip to the for statement
+	if (stmt.ifRoot != nil) {
+		stmt = stmt.ifRoot 
+	}
+	
 	// if we have successors 
 	if len(stmt.successors) >0 {
 		// add the head cfgnode for each successor statement 
 		for _, succStmt = range stmt.successors {
+
 			if (len(succStmt.cfgNodes) > 0) {
 				cnode.successors = append(cnode.successors,succStmt.cfgNodes[0])
-			}
+			} 
 		}
 	}
 
 	// if we have predecessors 
 	if len(stmt.predecessors ) > 0 {
+
 		// add the tail cfgNode for each predecessor statement 	
 		for _, predStmt = range stmt.predecessors {
-			if (len(predStmt.cfgNodes) > 0) {
-				cnode.predecessors = append(cnode.predecessors,predStmt.cfgNodes[len(predStmt.cfgNodes)-1])
+			
+			if (predStmt.ifRoot != nil) {
+				prev = predStmt.ifRoot 
+			} else {
+				prev = predStmt 
+			}
+
+			if (len(prev.cfgNodes) > 0) {
+				cnode.predecessors = append(cnode.predecessors,prev.cfgNodes[len(prev.cfgNodes)-1])
 			}
 		}
 	}
@@ -2715,6 +2731,23 @@ func (l *argoListener) printStatementGraph(format string) {
 			}		
 		}
 
+		if len(node.callers) >0 {
+			if (format == "text") {			
+				fmt.Printf(" callers: ")
+			}
+			j=0
+			for (j < len(node.callers)) {
+
+				if (format == "text") {
+					fmt.Printf("%d ",node.callers[j].id)
+				}
+				if (format == "graphViz") {
+					caller := node.callers[j]
+					fmt.Printf("\"%d%s\" -> \"%d%s\" [ label = \"ct\" ]; \n",node.id,node.stmtType,caller.id,caller.stmtType)					
+				}
+				j++
+			}		
+		}
 
 		if len(node.returnTargets) >0 {
 			if (format == "text") {			

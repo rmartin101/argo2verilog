@@ -55,7 +55,7 @@ func main() {
 		fmt.Printf("Y is %d  \n", y) ;
 		
 	} else {
-		fmt.Printf("Y*Y is %d  \n", y*y) ;		
+		fmt.Printf("Y*Y is %d  \n", y*y) ;	
 	} ;
 	// highly chained if-elses 
 	if  z:=7; z > ( z*(i*i) * (j+k) )  {
