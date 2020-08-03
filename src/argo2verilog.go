@@ -2178,6 +2178,20 @@ func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode)
 	return id,node
 }
 
+// maintain order, remove from list
+// update in place 
+func removeCfgFromList(cNodeList []*CfgNode, nodeToRemove *CfgNode) []*CfgNode {
+	for i, current := range cNodeList {
+		if (current == nodeToRemove ) {
+			copy(cNodeList[i:], cNodeList[i+1:]) // Shift a[i+1:] left one index.
+			cNodeList[len(cNodeList)-1] = nil     // Erase last element (write zero value).
+			cNodeList = cNodeList[:len(cNodeList)-1]
+			return  cNodeList 
+		}
+	}
+	return cNodeList
+}
+
 
 // Add a statements predecessor and successor cfg node to a cfg node 
 // This is the normal linear case, where we have a linear sequence
@@ -2224,6 +2238,44 @@ func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
 			}
 		}
 	}
+}
+
+// for statements where the child in the next logical statement not the successor statement
+func addChildToCfg(cnode *CfgNode, stmt *StatementNode) {
+	var succStmt, predStmt, prev *StatementNode
+
+	succStmt = nil
+	predStmt = nil
+
+	// if this is a for or if sub-statement, then skip to the for statement
+	if (stmt.ifRoot != nil) {
+		stmt = stmt.ifRoot 
+	}
+	
+	// if we have successors 
+	if stmt.child != nil {
+		succStmt = stmt.child
+		if (len(succStmt.cfgNodes) > 0) {
+			cnode.successors = append(cnode.successors,succStmt.cfgNodes[0])
+		}
+	}
+	// if we have predecessors 
+	if len(stmt.predecessors ) > 0 {
+
+		// add the tail cfgNode for each predecessor statement 	
+		for _, predStmt = range stmt.predecessors {
+			
+			if (predStmt.ifRoot != nil) {
+				prev = predStmt.ifRoot 
+			} else {
+				prev = predStmt 
+			}
+
+			if (len(prev.cfgNodes) > 0) {
+				cnode.predecessors = append(cnode.predecessors,prev.cfgNodes[len(prev.cfgNodes)-1])
+			}
+		}
+	}	
 }
 
 // build the control flow graph and data flow from the statement graph
@@ -2438,7 +2490,7 @@ func (l *argoListener) forwardCfgPass() {
 		case "FuncExit":
 			addLinearToCfg(currentCfgNode,currentStmt)
 		case "functionDecl":
-			addLinearToCfg(currentCfgNode,currentStmt)
+			addChildToCfg(currentCfgNode,currentStmt)
 		case "goStmt":
 			addLinearToCfg(currentCfgNode,currentStmt)
 		case "ifStmt":
@@ -2490,6 +2542,17 @@ func (l *argoListener) forwardCfgPass() {
 		}
 
 	}
+
+	// change the iftest targets predecessors to the predecessors taken 
+	for _, currentCfgNode = range(l.controlFlowGraph) {
+		if (currentCfgNode.cfgType == "ifTest") {
+			for _, cNode := range currentCfgNode.successors_taken {
+				cNode.predecessors_taken = append(cNode.predecessors_taken,currentCfgNode)
+				cNode.predecessors = removeCfgFromList(cNode.predecessors, currentCfgNode)
+			}
+			
+		}
+	}
 }
 
 
@@ -2530,6 +2593,7 @@ func (l *argoListener) printControlFlowGraph() {
 			fmt.Printf("%d ",p.id)
 		}
 
+		fmt.Printf(" pred_taken: ")
 		for _,pt := range node.predecessors_taken { 
 			fmt.Printf("%d ",pt.id)
 		}
