@@ -2372,7 +2372,8 @@ func (l *argoListener) forwardCfgPass() {
 				_, forCfgPost := l.newCFGnode(currentStmt, 2)
 				forCfgPost.cfgType = "forPost"
 				forCfgPost.subStmt = currentStmt.forPost
-				forCfgPost.subStmtID = currentStmt.forPost.id 
+				forCfgPost.subStmtID = currentStmt.forPost.id
+				l.controlFlowGraph = append(l.controlFlowGraph,forCfgPost)				
 				currentStmt.forPost.visited = true 
 			}
 
@@ -2486,7 +2487,39 @@ func (l *argoListener) forwardCfgPass() {
 		case "expressionStmt":
 			addLinearToCfg(currentCfgNode,currentStmt)
 		case "forStmt":
-			addLinearToCfg(currentCfgNode,currentStmt)
+			var initCfg,condCfg,postCfg *CfgNode
+
+			for _,controlNode := range (currentStmt.cfgNodes) {
+				
+				switch controlNode.cfgType {
+				case "forInit":
+					initCfg = controlNode
+				case "forCond":
+					condCfg = controlNode 
+				case "forPost":
+					postCfg = controlNode 
+				default:
+					fmt.Printf("Error: at %s forStmt %d has unknown type %s \n",_file_line_(),controlNode.id,controlNode.cfgType)					
+				}
+			}
+			if (initCfg != nil){ 
+				if (condCfg != nil) {
+					initCfg.successors = append(initCfg.successors,condCfg)
+					condCfg.predecessors = append(condCfg.predecessors,initCfg)
+				} else {
+					initCfg.successors = append(initCfg.successors,condCfg)
+				}
+			}
+
+			if (postCfg != nil) {
+				if (condCfg != nil) {
+					postCfg.successors = append(postCfg.successors,condCfg)
+				} else {
+					
+				}
+				
+			}
+				
 		case "FuncExit":
 			addLinearToCfg(currentCfgNode,currentStmt)
 		case "functionDecl":
