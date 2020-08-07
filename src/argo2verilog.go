@@ -2278,6 +2278,33 @@ func addChildToCfg(cnode *CfgNode, stmt *StatementNode) {
 	}	
 }
 
+
+// Given a statement Nodes, return the predecessor control flow graph node
+// Must have a function for this as various expressions in for an if statements must get bumped up to
+// the parent statement
+func getPredStmtCfg(stmt *StatementNode) *CfgNode {
+
+	if (stmt.ifRoot == nil ) && (stmt.forRoot == nil) {
+		if len(stmt.cfgNodes) == 0 {
+			fmt.Printf("Error at %s stmt node %d no cfg node \n",_file_line_(),stmt.id)
+			return nil 
+		}
+		return stmt.cfgNodes[0]
+	}
+
+	if (stmt.ifRoot != nil ) {
+		return stmt.cfgNodes[len(stmt.cfgNodes)-1]
+	}
+
+	if (stmt.forRoot != nil ) {
+		return stmt.cfgNodes[len(stmt.cfgNodes)-1]		
+	}
+
+
+	fmt.Printf("Error at %s stmt node %d no cfg node \n",_file_line_(),stmt.id)
+	return nil
+}
+	
 // build the control flow graph and data flow from the statement graph
 /* 
   assignment
@@ -2487,7 +2514,21 @@ func (l *argoListener) forwardCfgPass() {
 		case "expressionStmt":
 			addLinearToCfg(currentCfgNode,currentStmt)
 		case "forStmt":
-			var initCfg,condCfg,postCfg *CfgNode
+			var initCfg,condCfg,postCfg,blockCfg,prevCfg,tailCfg *CfgNode
+			var endStmt *StatementNode
+
+			// last (tail) control node for the prev statement 
+			//prevCfg = prevStmt.cfgNodes[len(prevStmt.cfgNodes)-1]
+			prevCfg = getPredStmtCfg(currentStmt)
+			
+			// the head of the block for the loop 
+			if (currentStmt.forBlock != nil) { 
+				blockCfg = currentStmt.forBlock.cfgNodes[0]
+			}
+
+			// the EOS for the loop; this is the loop exit 
+			endStmt = currentStmt.successors[0]
+			tailCfg = endStmt.cfgNodes[0]
 
 			for _,controlNode := range (currentStmt.cfgNodes) {
 				
@@ -2502,22 +2543,50 @@ func (l *argoListener) forwardCfgPass() {
 					fmt.Printf("Error: at %s forStmt %d has unknown type %s \n",_file_line_(),controlNode.id,controlNode.cfgType)					
 				}
 			}
-			if (initCfg != nil){ 
+
+			// if there is an initialization node, connect the conditional node
+			// if there is one. 
+			if (initCfg != nil){
+				// connect to the tail of the previous node 
+				initCfg.predecessors = append(condCfg.successors,prevCfg)
+
+				// if there is a config node 
 				if (condCfg != nil) {
 					initCfg.successors = append(initCfg.successors,condCfg)
 					condCfg.predecessors = append(condCfg.predecessors,initCfg)
 				} else {
-					initCfg.successors = append(initCfg.successors,condCfg)
+					initCfg.successors = append(initCfg.successors,blockCfg)
 				}
 			}
 
+			// main clause if there is a config node 
+			if (condCfg != nil) {
+				condCfg.successors_taken = append(condCfg.successors_taken,blockCfg)
+				condCfg.successors = append(condCfg.successors,tailCfg)				
+			} else {
+				if (initCfg == nil) {
+					condCfg.predecessors = append(condCfg.successors,prevCfg)
+				}
+			}
+			
+
+			// main clause if there is a post config statement 
+			// if there is a post (end of loop) statement
+
 			if (postCfg != nil) {
+				initCfg.predecessors = append(condCfg.successors,prevCfg)
+				
 				if (condCfg != nil) {
 					postCfg.successors = append(postCfg.successors,condCfg)
 				} else {
+					tailCfg.successors= append(tailCfg.successors,prevCfg)
+				}
+			} else {
+				if (condCfg != nil) {
+					tailCfg.successors= append(tailCfg.successors,condCfg)
+				} else {
 					
 				}
-				
 			}
 				
 		case "FuncExit":
