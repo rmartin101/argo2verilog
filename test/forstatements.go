@@ -17,7 +17,8 @@ func snafu(i,j int) int {
 
 func plusOne(i int) int {
 	for i < 3 {
-		i = i +1; 
+		i = i +1;
+		i = i * 2;
 	};
 
 	return i + 1; 

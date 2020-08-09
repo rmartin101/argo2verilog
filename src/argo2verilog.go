@@ -2514,7 +2514,7 @@ func (l *argoListener) forwardCfgPass() {
 		case "expressionStmt":
 			addLinearToCfg(currentCfgNode,currentStmt)
 		case "forStmt":
-			var initCfg,condCfg,postCfg,blockCfg,prevCfg,tailCfg *CfgNode
+			var initCfg,condCfg,postCfg,blockCfg,prevCfg,eosCfg *CfgNode
 			var endStmt *StatementNode
 
 			// last (tail) control node for the prev statement 
@@ -2528,8 +2528,10 @@ func (l *argoListener) forwardCfgPass() {
 
 			// the EOS for the loop; this is the loop exit 
 			endStmt = currentStmt.successors[0]
-			tailCfg = endStmt.cfgNodes[0]
+			eosCfg = endStmt.cfgNodes[0]
 
+
+			
 			for _,controlNode := range (currentStmt.cfgNodes) {
 				
 				switch controlNode.cfgType {
@@ -2562,7 +2564,7 @@ func (l *argoListener) forwardCfgPass() {
 			// main clause if there is a config node 
 			if (condCfg != nil) {
 				condCfg.successors_taken = append(condCfg.successors_taken,blockCfg)
-				condCfg.successors = append(condCfg.successors,tailCfg)				
+				condCfg.successors = append(condCfg.successors,eosCfg)				
 			} else {
 				if (initCfg == nil) {
 					condCfg.predecessors = append(condCfg.successors,prevCfg)
@@ -2579,13 +2581,13 @@ func (l *argoListener) forwardCfgPass() {
 				if (condCfg != nil) {
 					postCfg.successors = append(postCfg.successors,condCfg)
 				} else {
-					tailCfg.successors= append(tailCfg.successors,prevCfg)
+					eosCfg.successors= append(eosCfg.successors,prevCfg)
 				}
 			} else {
 				if (condCfg != nil) {
-					tailCfg.successors= append(tailCfg.successors,condCfg)
+					eosCfg.successors= append(eosCfg.successors,condCfg)
 				} else {
-					
+					eosCfg.successors= append(eosCfg.successors,blockCfg)
 				}
 			}
 				
