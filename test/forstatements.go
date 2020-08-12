@@ -18,7 +18,7 @@ func snafu(i,j int) int {
 func plusOne(i int) int {
 	for i < 3 {
 		i = i +1;
-		i = i * 2;
+		// i = i * 2;
 	};
 
 	return i + 1; 
@@ -41,7 +41,6 @@ func main() {
 		};
 	}; 
 	fmt.Printf("The sum is %d \n",sum) ;
-
 	j =  1;
 
 	for j < 5 {

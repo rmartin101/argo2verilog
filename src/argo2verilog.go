@@ -2200,44 +2200,34 @@ func removeCfgFromList(cNodeList []*CfgNode, nodeToRemove *CfgNode) []*CfgNode {
 // the statement
 // FIXME: add return error code
 func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
-	var succStmt, predStmt, prev *StatementNode
-
+	var succStmt, succ *StatementNode
 	succStmt = nil
-	predStmt = nil
 
 	// if this is a for or if sub-statement, then skip to the for statement
 	if (stmt.ifRoot != nil) {
 		stmt = stmt.ifRoot 
 	}
-	
+
 	// if we have successors 
 	if len(stmt.successors) >0 {
 		// add the head cfgnode for each successor statement 
 		for _, succStmt = range stmt.successors {
 
-			if (len(succStmt.cfgNodes) > 0) {
-				cnode.successors = append(cnode.successors,succStmt.cfgNodes[0])
-			} 
-		}
-	}
-
-	// if we have predecessors 
-	if len(stmt.predecessors ) > 0 {
-
-		// add the tail cfgNode for each predecessor statement 	
-		for _, predStmt = range stmt.predecessors {
-			
-			if (predStmt.ifRoot != nil) {
-				prev = predStmt.ifRoot 
+			if (succStmt.forRoot != nil) {
+				succ = succStmt.forRoot 
 			} else {
-				prev = predStmt 
+				succ = succStmt
 			}
-
-			if (len(prev.cfgNodes) > 0) {
-				cnode.predecessors = append(cnode.predecessors,prev.cfgNodes[len(prev.cfgNodes)-1])
+			
+			if (len(succ.cfgNodes) > 0) {
+				cnode.successors = append(cnode.successors,succ.cfgNodes[0])
+			} else {
+				// fmt.Printf("Error at %s stmt node %d no cfg successor \n",_file_line_(),succ.id)
 			}
 		}
 	}
+	cnode.predecessors = append(cnode.predecessors, getPredStmtCfg(stmt))
+
 }
 
 // for statements where the child in the next logical statement not the successor statement
@@ -2279,28 +2269,40 @@ func addChildToCfg(cnode *CfgNode, stmt *StatementNode) {
 }
 
 
-// Given a statement Nodes, return the predecessor control flow graph node
+// Given a statement Node, return the predecessor control flow graph node
 // Must have a function for this as various expressions in for an if statements must get bumped up to
 // the parent statement
 func getPredStmtCfg(stmt *StatementNode) *CfgNode {
 
-	if (stmt.ifRoot == nil ) && (stmt.forRoot == nil) {
-		if len(stmt.cfgNodes) == 0 {
-			fmt.Printf("Error at %s stmt node %d no cfg node \n",_file_line_(),stmt.id)
-			return nil 
+	var predStmt, prev *StatementNode
+	// add the tail cfgNode for each predecessor statement 	
+	for _, predStmt = range stmt.predecessors {
+			
+		if (predStmt.ifRoot != nil) {
+			prev = predStmt.ifRoot 
+		} else {
+			if (predStmt.forRoot != nil) {
+				prev = predStmt.forRoot 				
+			} else {
+				prev = predStmt 
+			}
 		}
-		return stmt.cfgNodes[0]
+
+		if (len(prev.cfgNodes) > 0) {
+			if (prev.forCond != nil) { // is the previous node has a for conditional, make the cond the target
+				// not the last node in the list 
+				for _, cfgTarget := range prev.cfgNodes {
+					if cfgTarget.cfgType == "forCond" { 
+						return cfgTarget
+					}
+				}
+			} else { 
+				return prev.cfgNodes[len(prev.cfgNodes)-1]
+			}
+		} else {
+			// fmt.Printf("Error at %s stmt node %d no cfg predecessor \n",_file_line_(),prev.id)
+		}
 	}
-
-	if (stmt.ifRoot != nil ) {
-		return stmt.cfgNodes[len(stmt.cfgNodes)-1]
-	}
-
-	if (stmt.forRoot != nil ) {
-		return stmt.cfgNodes[len(stmt.cfgNodes)-1]		
-	}
-
-
 	fmt.Printf("Error at %s stmt node %d no cfg node \n",_file_line_(),stmt.id)
 	return nil
 }
@@ -2376,6 +2378,10 @@ func (l *argoListener) forwardCfgPass() {
 			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
 			currentCfgNode.cfgType = "expression"						
 			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+
+			// create control flow graph nodes for a for statement
+			// if the statement is missing conditional and post nodes
+			// we go ahead and add ghost node version of them 
 		case "forStmt":
 
 			if (currentStmt.forInit != nil) { 
@@ -2393,8 +2399,15 @@ func (l *argoListener) forwardCfgPass() {
 				forCfgCond.subStmtID = currentStmt.forCond.id 
 				l.controlFlowGraph = append(l.controlFlowGraph,forCfgCond)				
 				currentStmt.forCond.visited = true 
-
+			} else {
+				_, forCfgCond := l.newCFGnode(currentStmt, 4)
+				forCfgCond.cfgType = "forCond"
+				forCfgCond.subStmt = nil
+				forCfgCond.subStmtID = -1
+				l.controlFlowGraph = append(l.controlFlowGraph,forCfgCond)				
 			}
+
+			
 			if (currentStmt.forPost != nil ) {
 				_, forCfgPost := l.newCFGnode(currentStmt, 2)
 				forCfgPost.cfgType = "forPost"
@@ -2402,7 +2415,14 @@ func (l *argoListener) forwardCfgPass() {
 				forCfgPost.subStmtID = currentStmt.forPost.id
 				l.controlFlowGraph = append(l.controlFlowGraph,forCfgPost)				
 				currentStmt.forPost.visited = true 
+			} else {
+				_, forCfgPost := l.newCFGnode(currentStmt, 5)
+				forCfgPost.cfgType = "forPost"
+				forCfgPost.subStmt = nil 
+				forCfgPost.subStmtID = -1
+				l.controlFlowGraph = append(l.controlFlowGraph,forCfgPost)				
 			}
+			
 
 		case "FuncExit":
 			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
@@ -2530,8 +2550,6 @@ func (l *argoListener) forwardCfgPass() {
 			endStmt = currentStmt.successors[0]
 			eosCfg = endStmt.cfgNodes[0]
 
-
-			
 			for _,controlNode := range (currentStmt.cfgNodes) {
 				
 				switch controlNode.cfgType {
@@ -2550,7 +2568,7 @@ func (l *argoListener) forwardCfgPass() {
 			// if there is one. 
 			if (initCfg != nil){
 				// connect to the tail of the previous node 
-				initCfg.predecessors = append(condCfg.successors,prevCfg)
+				initCfg.predecessors = append(initCfg.predecessors,prevCfg)
 
 				// if there is a config node 
 				if (condCfg != nil) {
@@ -2564,7 +2582,7 @@ func (l *argoListener) forwardCfgPass() {
 			// main clause if there is a config node 
 			if (condCfg != nil) {
 				condCfg.successors_taken = append(condCfg.successors_taken,blockCfg)
-				condCfg.successors = append(condCfg.successors,eosCfg)				
+				condCfg.successors = append(condCfg.successors,eosCfg)
 			} else {
 				if (initCfg == nil) {
 					condCfg.predecessors = append(condCfg.successors,prevCfg)
@@ -2576,8 +2594,6 @@ func (l *argoListener) forwardCfgPass() {
 			// if there is a post (end of loop) statement
 
 			if (postCfg != nil) {
-				initCfg.predecessors = append(condCfg.successors,prevCfg)
-				
 				if (condCfg != nil) {
 					postCfg.successors = append(postCfg.successors,condCfg)
 				} else {
@@ -2649,14 +2665,17 @@ func (l *argoListener) forwardCfgPass() {
 
 	// change the iftest targets predecessors to the predecessors taken 
 	for _, currentCfgNode = range(l.controlFlowGraph) {
-		if (currentCfgNode.cfgType == "ifTest") {
+		if (currentCfgNode.cfgType == "ifTest") || (currentCfgNode.cfgType == "forCond") {
 			for _, cNode := range currentCfgNode.successors_taken {
 				cNode.predecessors_taken = append(cNode.predecessors_taken,currentCfgNode)
 				cNode.predecessors = removeCfgFromList(cNode.predecessors, currentCfgNode)
 			}
 			
 		}
+
 	}
+
+	
 }
 
 
@@ -2693,8 +2712,12 @@ func (l *argoListener) printControlFlowGraph() {
 
 		fmt.Printf(" pred: ")
 		
-		for _,p := range node.predecessors { 
-			fmt.Printf("%d ",p.id)
+		for _,p := range node.predecessors {
+			if p == nil {
+				fmt.Printf("-")				
+			} else { 
+				fmt.Printf("%d ",p.id)
+			}
 		}
 
 		fmt.Printf(" pred_taken: ")
