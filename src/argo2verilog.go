@@ -1376,7 +1376,10 @@ func (l *argoListener) parseForStmt(forNode *ParseNode,funcDecl *ParseNode,forSt
 		conditionStmt.addStmtSuccessor(blockHead)
 		blockHead.addStmtPredecessor(conditionStmt)
 		conditionStmt.forRoot = forStmt 
+	} else {
+		blockHead.addStmtPredecessor(forStmt)		
 	}
+	
 	if (len(blocklist) > 0) {
 		statements = append(statements,blocklist...)
 	}
@@ -2106,6 +2109,11 @@ func (l *argoListener) getStatementGraph() int {
 				// add this to the global list of statements 
 				l.statementGraph = append(l.statementGraph,exitNode)
 
+
+				if (len(statements) > 0) {
+					exitNode.addStmtPredecessor(statements[len(statements)-1])
+				}
+				
 				// fix the predecessor/successor edges 
 				entryNode.addStmtSuccessor(exitNode)
 				// note the predecessor of an exit nodes are the return statements
@@ -2230,7 +2238,9 @@ func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
 			}
 		}
 	}
-	cnode.predecessors = append(cnode.predecessors, getPredStmtCfg(stmt))
+	if (stmt.stmtType != "startNode") { 
+		cnode.predecessors = append(cnode.predecessors, getPredStmtCfg(stmt))
+	}
 
 }
 
