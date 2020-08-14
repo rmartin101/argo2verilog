@@ -1,3 +1,4 @@
+
 /* Argo to Verilog Compiler 
     (c) 2020, Richard P. Martin and contributers 
     
@@ -228,6 +229,7 @@ type CfgNode struct {
 	stmtID    int                    // ID number of the statement node
 	subStmt   *StatementNode         // the sub-statement for If, For and Case statements
 	subStmtID  int                   // the sub-statementID
+	isDummy    bool                  // dummy node to use as a placeholder to build the cfg graph 
 	sourceRow      int               // row in the source code
 	sourceCol      int               // column in the source code
 	successors []*CfgNode             // successive statement
@@ -1395,7 +1397,9 @@ func (l *argoListener) parseForStmt(forNode *ParseNode,funcDecl *ParseNode,forSt
 			blockTail.addStmtSuccessor(conditionStmt)
 			
 		} else {
-			blockTail.addStmtSuccessor(eosStmt)
+			// an if statement tail should go to a fake post statement
+			// try pointing back to the for node in this case 
+			blockTail.addStmtSuccessor(forStmt)
 		}
 	}
 
@@ -2288,6 +2292,11 @@ func getPredStmtCfg(stmt *StatementNode) *CfgNode {
 			}
 		}
 
+		// break and continue need to break the predecessor edges 
+		if (prev.stmtType == "breakStmt") || (prev.stmtType == "continueStmt") {
+			return nil 
+		}
+		
 		if (len(prev.cfgNodes) > 0) {
 			if (prev.forCond != nil) { // is the previous node has a for conditional, make the cond the target
 				// not the last node in the list 
@@ -2306,6 +2315,36 @@ func getPredStmtCfg(stmt *StatementNode) *CfgNode {
 	fmt.Printf("Error at %s stmt node %d no cfg node \n",_file_line_(),stmt.id)
 	return nil
 }
+
+// get the loop head by walking up the parent until we find a for statement 
+func getLoopHead(stmt *StatementNode) *StatementNode {
+	var foundLoop bool
+	var parent,initStmt *StatementNode
+
+	initStmt = stmt 
+	parent = stmt
+	
+	if (parent.stmtType == "forStmt") {
+		foundLoop = true 
+	}
+	
+	// walk up the parents looking for the loop head 
+	for (foundLoop == false) && (parent != nil) {
+		if (parent.stmtType == "forStmt") {
+			foundLoop = true 
+		} else {
+			parent = parent.parent 
+		}
+	}
+	
+	// sanity check 
+	if (parent == nil) {
+		fmt.Printf("Error at %s stmt node %d no loop parent for stmt node %d \n",_file_line_(),initStmt.id)
+	}
+	
+	return parent 
+}
+
 	
 // build the control flow graph and data flow from the statement graph
 /* 
@@ -2423,7 +2462,6 @@ func (l *argoListener) forwardCfgPass() {
 				l.controlFlowGraph = append(l.controlFlowGraph,forCfgPost)				
 			}
 			
-
 		case "FuncExit":
 			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
 			currentCfgNode.cfgType = "funcExit"
@@ -2516,16 +2554,33 @@ func (l *argoListener) forwardCfgPass() {
 			for _, varNode := range( currentStmt.writeVars) {
 				varNode.cfgNodes = append(varNode.cfgNodes,currentCfgNode) 
 			}
-		case "breakStmt":
-			parentStmt := currentStmt.parent
-			parentSuccessor := parentStmt.successors[0]
-			targetSuccessor  := parentSuccessor.cfgNodes[0]
-			currentCfgNode.successors = append(currentCfgNode.successors,targetSuccessor)
+		case "breakStmt": // walk up to the first loop 
+			var loopHead *StatementNode
 
-		case "continueStmt":
-			parentStmt := currentStmt.parent
-			targetSuccessor  := parentStmt.cfgNodes[0]
+			loopHead = getLoopHead(currentStmt)
+			targetSuccessor := loopHead.successors[0].cfgNodes[0]
 			currentCfgNode.successors = append(currentCfgNode.successors,targetSuccessor)
+			
+			predCfg := getPredStmtCfg(currentStmt)
+			currentCfgNode.predecessors = append(currentCfgNode.predecessors,predCfg)
+			
+		case "continueStmt":
+			var loopHead *StatementNode
+			var condCfg  *CfgNode
+			
+			loopHead = getLoopHead(currentStmt)
+			// find the conditional node 
+			for _, condCfg = range loopHead.cfgNodes {
+				if condCfg.cfgType == "forCond" {
+					break
+				}
+			}
+
+			currentCfgNode.successors = append(currentCfgNode.successors,condCfg)
+
+			
+			predCfg := getPredStmtCfg(currentStmt)
+			currentCfgNode.predecessors = append(currentCfgNode.predecessors,predCfg)
 			
 		case "eos":
 			addLinearToCfg(currentCfgNode,currentStmt)

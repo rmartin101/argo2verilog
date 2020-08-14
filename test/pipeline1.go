@@ -5,6 +5,7 @@ package main ;
 
 import ( "fmt" ) ;
 
+
 // input
 func input(total uint32, pipe1 chan uint32) {
 	var i uint32; 	
@@ -64,7 +65,9 @@ func output(pipe2 chan uint32,done chan bool) {
 
 func main() {
 	var finished bool;
-	
+	var i int;
+
+	i =0; 
 	pipe1 := make(chan uint32,1) ;
 	pipe2 := make(chan uint32, 4);
 	done := make(chan bool, 1);
@@ -75,7 +78,7 @@ func main() {
 
 	finished = <- done;
 
-	fmt.Printf("finished is %t\n", finished);
+	fmt.Printf("finished is %t i is %d\n", finished,i);
 	
 };
 
