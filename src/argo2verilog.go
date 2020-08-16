@@ -193,7 +193,7 @@ type StatementNode struct {
 	predecessors   []*StatementNode // list of predicessors
 	predIDs        []int       // IDs of the predicessors
 	successors     []*StatementNode // list of successors
-	succIDs        []int       // IDs of the successors
+	succIDs[]int       // IDs of the successors
 	parent         *StatementNode // the parent node for this block
 	parentID       int            // the parent node ID for this block
 	child         *StatementNode // If there is a child node for this block. Defines scope 
@@ -207,6 +207,7 @@ type StatementNode struct {
 	forCond   *StatementNode     // the for test expression
 	forPost   *StatementNode      // the for post-statement
 	forBlock  *StatementNode     // the main block of the for statement
+	forTail    *StatementNode     //  end of the for block
 	forRoot   *StatementNode       // root for stmt if this is an init, cond post or block 
 	caseList   [][]*StatementNode  // list of statements for a switch or select statement
 	callTargets []*StatementNode     // regular caller target statement (funcDecl)
@@ -347,6 +348,15 @@ func (node *StatementNode) forBlockID() int {
 		return -1
 	} else {
 		s := node.forBlock
+		return s.id
+	}
+}
+
+func (node *StatementNode) forTailID() int {
+	if (node.forTail == nil) {
+		return -1
+	} else {
+		s := node.forTail
 		return s.id
 	}
 }
@@ -1357,6 +1367,7 @@ func (l *argoListener) parseForStmt(forNode *ParseNode,funcDecl *ParseNode,forSt
 	forStmt.forCond = conditionStmt
 	forStmt.forPost = postStmt 
 	forStmt.forBlock = blockStmt
+	forStmt.forTail = blockTail
 	
 	// This sets the pred and successor links for the initialization statement
 	// note this assume the block is defined, which is might not be
@@ -2230,9 +2241,19 @@ func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
 			} else {
 				succ = succStmt
 			}
-			
+
+			// if the cfg node is an eos and the statement is a for statement, add the
+			// edge to the for conditional cfgNode 
 			if (len(succ.cfgNodes) > 0) {
-				cnode.successors = append(cnode.successors,succ.cfgNodes[0])
+				if ((succ.stmtType == "forStmt") && ( cnode.cfgType == "eos"))  {
+					for _, cfgNode := range succ.cfgNodes {
+						if (cfgNode.cfgType == "forCond") {
+							cnode.successors = append(cnode.successors,cfgNode)
+						}
+					}
+				} else { 
+					cnode.successors = append(cnode.successors,succ.cfgNodes[0])
+				}
 			} else {
 				// fmt.Printf("Error at %s stmt node %d no cfg successor \n",_file_line_(),succ.id)
 			}
@@ -2456,7 +2477,6 @@ func (l *argoListener) forwardCfgPass() {
 				l.controlFlowGraph = append(l.controlFlowGraph,forCfgCond)				
 			}
 
-			
 			if (currentStmt.forPost != nil ) {
 				_, forCfgPost := l.newCFGnode(currentStmt, 2)
 				forCfgPost.cfgType = "forPost"
@@ -2469,7 +2489,7 @@ func (l *argoListener) forwardCfgPass() {
 				forCfgPost.cfgType = "forPost"
 				forCfgPost.subStmt = nil 
 				forCfgPost.subStmtID = -1
-				l.controlFlowGraph = append(l.controlFlowGraph,forCfgPost)				
+				l.controlFlowGraph = append(l.controlFlowGraph,forCfgPost)
 			}
 			
 		case "FuncExit":
@@ -2659,11 +2679,18 @@ func (l *argoListener) forwardCfgPass() {
 			// if there is a post (end of loop) statement
 
 			if (postCfg != nil) {
+				tailStmt := currentStmt.forTail
+				tailCfg := tailStmt.cfgNodes[0]
+
+				
 				if (condCfg != nil) {
 					postCfg.successors = append(postCfg.successors,condCfg)
+					condCfg.predecessors = append(condCfg.predecessors,postCfg)
 				} else {
 					eosCfg.successors= append(eosCfg.successors,prevCfg)
 				}
+				postCfg.predecessors = append(postCfg.predecessors,tailCfg)
+				
 			} else {
 				if (condCfg != nil) {
 					eosCfg.successors= append(eosCfg.successors,condCfg)
@@ -2785,7 +2812,7 @@ func (l *argoListener) printControlFlowGraph() {
 			}
 		}
 
-		fmt.Printf(" pred_taken: ")
+		fmt.Printf(" p_taken: ")
 		for _,pt := range node.predecessors_taken { 
 			fmt.Printf("%d ",pt.id)
 		}
@@ -3071,7 +3098,7 @@ func (l *argoListener) printStatementGraph(format string) {
 		case "selectStmt":
 		case "forStmt":
 			if (format == "text") {						
-				fmt.Printf("init: %d cond: %d post %d block %d ",node.forInitID(),node.forCondID(),node.forPostID(),node.forBlockID())
+				fmt.Printf("init: %d cond: %d post %d block %d tail %d ",node.forInitID(),node.forCondID(),node.forPostID(),node.forBlockID(),node.forTailID())
 			}
 
 
