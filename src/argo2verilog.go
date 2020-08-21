@@ -430,7 +430,10 @@ type argoListener struct {
 	funcNodeList  []*FunctionNode     // list of functions
 	funcNameMap map[string]*FunctionNode  //  maps the names of the functions to the function node 
 	statementGraph   []*StatementNode   // list of statement nodes.
-	controlFlowGraph []*CfgNode         // list of control flow nodes 
+	controlFlowGraph []*CfgNode         // list of control flow nodes
+	moduleName    string                // name of the module for Verilog/VHDL
+	outputFile       *os.File            // output file writer
+	
 }
 
 
@@ -3382,6 +3385,11 @@ func parseArgo(fname *string) *argoListener {
 	listener.logIt.flags = make(map[string]bool,16)
 	listener.logIt.init()
 	listener.logIt.flags["MIN"] = true
+
+	nName := strings.TrimSuffix(*fname,".go")
+	sNames := strings.Split(nName,"/")
+	
+	listener.moduleName = sNames[len(sNames)-1]
 	
 	if (err != nil) {
 		fmt.Printf("Getting program lines failed\n")
@@ -3407,12 +3415,13 @@ var max_parse_errors int
 
 func main() {
 	var parsedProgram *argoListener 
-	var inputFileName_p *string
+	var inputFileName_p,outputFileName_p *string
 	var printASTasGraphViz_p,printASTasText_p,printVarNames_p,printFuncNames_p,printStmtGraph_p,parseCheck_p *bool
 	var printStmtGraphGV_p *bool
 	var printCntlGraph_p *bool
 	
 	inputFileName_p = nil
+	outputFileName_p = nil
 	max_parse_errors = 50
 	
 	printASTasGraphViz_p = flag.Bool("gv",false,"print the parse tree in GraphViz format")
@@ -3424,6 +3433,8 @@ func main() {
 	printCntlGraph_p = flag.Bool("cntl",false,"print the control-flow graph")
 	parseCheck_p     = flag.Bool("check",false,"check for correct syntax ")
 	inputFileName_p = flag.String("i","","the input file name")
+	outputFileName_p = flag.String("o","","the output file name")
+
 
 	flag.Parse()
 
@@ -3436,6 +3447,8 @@ func main() {
 
 	parsedProgram.getAllVariables()  // must call get all variables first 
 	parsedProgram.getAllFunctions()  // then get all functions 
+
+
 	
 	if (*printASTasGraphViz_p) {
 		parsedProgram.printParseTreeNodes("dotShort")
@@ -3468,9 +3481,27 @@ func main() {
 		parsedProgram.printControlFlowGraph()	
 	}
 
+	
 	if (*parseCheck_p) {
 		fmt.Printf("parse check completed \n")
-	} else { 
+	} 
+
+
+	if ( len(*outputFileName_p) > 0 ) {
+		var w *os.File 
+		if *outputFileName_p == "-" {
+			w = os.Stdout
+		} else {
+		
+			file, err := os.OpenFile(*outputFileName_p, os.O_WRONLY|os.O_CREATE, 0666)
+			if err != nil {
+				fmt.Printf("Error opening file %s \n ",outputFileName_p)
+				os.Exit(1)
+			}
+			defer file.Close()
+			w = file
+		}
+		parsedProgram.outputFile = w
 		OutputVerilog(parsedProgram);
 	}
 }
