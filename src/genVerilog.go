@@ -29,7 +29,8 @@ import (
 func OutputVariables(parsedProgram *argoListener) {
 
 	// variable seciion 
-	var out *os.File 
+	var out *os.File
+
 	out = parsedProgram.outputFile
 	fmt.Fprintf(out,"// -------- Variable Section  ----------\n")
 	fmt.Fprintf(out,"// --- User Variables ---- \n ")	
@@ -41,6 +42,22 @@ func OutputVariables(parsedProgram *argoListener) {
 		}
 	}
 	fmt.Fprintf(out,"// --- Control Bits ---- \n")
+	fmt.Fprintf(out," \t reg clk ; \n")
+	fmt.Fprintf(out," \t reg [63:0] cycle_count ; \n")
+
+	
+	l := len(parsedProgram.controlFlowGraph)
+	if ( l == 0 ) {
+		fmt.Printf("Error: zero control flow nodes at line %d %s \n", l, _file_line_())
+		return ;
+	}
+	
+	fmt.Fprintf(out," \t reg %s ; \n",parsedProgram.controlFlowGraph[0].cannName)
+	for _, cNode := range(parsedProgram.controlFlowGraph) {
+		if ( (len(cNode.predecessors) > 0) || (len(cNode.predecessors_taken) >0) ) {
+			fmt.Fprintf(out," \t reg %s ; \n",cNode.cannName)
+		}
+	}
 	
 }
 
@@ -86,7 +103,7 @@ func OutputVerilog(parsedProgram *argoListener) {
 
 	OutputControlFlow(parsedProgram)
 
-	fmt.Fprintf(out,"endmodule\n",parsedProgram.moduleName)
+	fmt.Fprintf(out,"endmodule\n")
 }
 
 

@@ -6,7 +6,7 @@ import ( "fmt" ) ;
 
 
 func main() {
-	var i,j,k,z int ; 
+	var i,j,k,z int16 ; 
 
 	i = 1 ;
 	j = 2 ; 

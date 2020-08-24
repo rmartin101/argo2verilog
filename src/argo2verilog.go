@@ -2007,7 +2007,7 @@ func (l *argoListener) getStatementGraph() int {
 	var funcEOS  *ParseNode // exit node of the function 
 	var funcStr  string   //  string name of the function
 	
-	var startNode, entryNode,exitNode *StatementNode // function declation is the entry node in the graph
+	var startNode, entryNode,exitNode,finishNode *StatementNode // the entry node and end nodes in the entire graph
 	var statements []*StatementNode // list of statement nodes
 
 	
@@ -2123,6 +2123,24 @@ func (l *argoListener) getStatementGraph() int {
 				// add this to the global list of statements 
 				l.statementGraph = append(l.statementGraph,exitNode)
 
+				if (funcStr == "main") {
+					finishNode = new(StatementNode)
+					finishNode.id = l.nextStatementID; l.nextStatementID++
+					finishNode.parseDef = nil
+					finishNode.parseDefID =  0
+					finishNode.parseSubDef = nil 
+					finishNode.parseSubDefID =  0
+					finishNode.stmtType = "finishNode"
+					finishNode.funcName = "__finish__"
+					finishNode.sourceRow =  exitNode.sourceRow + 1
+					finishNode.sourceCol =  0
+					finishNode.parent = nil
+					finishNode.parentID = -1
+					l.statementGraph = append(l.statementGraph,finishNode)
+
+					exitNode.addStmtSuccessor(finishNode)
+					finishNode.addStmtPredecessor(exitNode)
+				} 
 
 				if (len(statements) > 0) {
 					exitNode.addStmtPredecessor(statements[len(statements)-1])
@@ -2552,6 +2570,10 @@ func (l *argoListener) forwardCfgPass() {
 			_, currentCfgNode = l.newCFGnode(currentStmt, 0)
 			currentCfgNode.cfgType = "startNode"
 			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
+		case "finishNode":
+			_, currentCfgNode = l.newCFGnode(currentStmt, 1)
+			currentCfgNode.cfgType = "finishNode"
+			l.controlFlowGraph = append(l.controlFlowGraph,currentCfgNode)
 		default:
 			fmt.Printf("Error at %s node %d unknown statement type: %s \n",_file_line_(),i,currentStmt.stmtType)
 		}
@@ -2620,6 +2642,8 @@ func (l *argoListener) forwardCfgPass() {
 		case "expression":
 			addLinearToCfg(currentCfgNode,currentStmt)
 		case "expressionStmt":
+			addLinearToCfg(currentCfgNode,currentStmt)
+		case "finishNode":
 			addLinearToCfg(currentCfgNode,currentStmt)
 		case "forStmt":
 			var initCfg,condCfg,postCfg,blockCfg,prevCfg,eosCfg *CfgNode
@@ -3445,10 +3469,12 @@ func main() {
 		parsedProgram = parseArgo(inputFileName_p)
 	}
 
+
+	// these are the top-level main causes of the compiler 
 	parsedProgram.getAllVariables()  // must call get all variables first 
 	parsedProgram.getAllFunctions()  // then get all functions 
-
-
+	parsedProgram.getStatementGraph()  // now make the statementgraph
+	parsedProgram.getControlFlowGraph()  // now make the statementgraph
 	
 	if (*printASTasGraphViz_p) {
 		parsedProgram.printParseTreeNodes("dotShort")
@@ -3468,7 +3494,7 @@ func main() {
 		
 	}
 	
-	parsedProgram.getStatementGraph()  // now make the statementgraph 
+	
 	if (*printStmtGraph_p) {
 		parsedProgram.printStatementGraph("text")	
 	}
@@ -3476,9 +3502,10 @@ func main() {
 		parsedProgram.printStatementGraph("graphViz")	
 	}
 	
-	if (*printCntlGraph_p) {
-		parsedProgram.getControlFlowGraph()  // now make the statementgraph
-		parsedProgram.printControlFlowGraph()	
+
+	if (*printCntlGraph_p)  {
+		parsedProgram.printControlFlowGraph()
+			
 	}
 
 	
