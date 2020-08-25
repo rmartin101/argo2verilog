@@ -116,7 +116,13 @@ func OutputDataflow(parsedProgram *argoListener) {
 	var out *os.File
 	out = parsedProgram.outputFile
 	
-	fmt.Fprintf(out,"// -------- Data Flow Section  ---------- \n")	
+	fmt.Fprintf(out,"// -------- Data Flow Section  ---------- \n")
+	for _, vNode := range(parsedProgram.varNodeList) {
+		for _, cNode := range vNode.cfgNodes {
+			fmt.Fprintf(out," at %s writevar %s \n",cNode.cannName,vNode.sourceName)
+		}
+	}
+	
 }
 
 /* ***************************************************** */
