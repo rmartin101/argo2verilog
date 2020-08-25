@@ -23,6 +23,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
+	"regexp"
 )
 
 /* ***************************************************** */
@@ -30,7 +32,6 @@ func OutputVariables(parsedProgram *argoListener) {
 
 	// variable seciion 
 	var out *os.File
-
 	out = parsedProgram.outputFile
 	fmt.Fprintf(out,"// -------- Variable Section  ----------\n")
 	fmt.Fprintf(out,"// --- User Variables ---- \n ")	
@@ -64,25 +65,67 @@ func OutputVariables(parsedProgram *argoListener) {
 /* ***************************************************** */
 // ouput the initialization section for simulation 
 func OutputInitialization(parsedProgram *argoListener) {
+	var out *os.File
+	out = parsedProgram.outputFile
 	
+	fmt.Fprintf(out,"// -------- Initialization Section  ---------- \n")
+	fmt.Fprintf(out,"initial begin \n")
+	fmt.Fprintf(out," \t clk = 0 ; \n ")
+	fmt.Fprintf(out," \t cycle_count = 0 ; \n")
+	fmt.Fprintf(out," \t %s = 1 ; \n",parsedProgram.controlFlowGraph[0].cannName)
+	fmt.Fprintf(out,"end \n")
 }
 
 /* ***************************************************** */
-// ouput the I/O section for simulation 
+// ouput the I/O section for simulation
+// right now just change the printfs to $display statements 
 func OutputIO(parsedProgram *argoListener) {
+	var out *os.File
+	var stmt *StatementNode
+	var pNode *ParseNode
+	var sourceCode string
+
+	out = parsedProgram.outputFile
+	
+	fmt.Fprintf(out,"// -------- I/O Section  ---------- \n")
+	fmt.Fprintf(out,"always @(posedge clk) begin \n")
+	
+	for _, cNode := range(parsedProgram.controlFlowGraph) {
+		if (cNode.cfgType == "expression" ) {
+			stmt = cNode.statement
+			pNode = stmt.parseDef
+			sourceCode = pNode.sourceCode
+			if strings.Contains(sourceCode,"fmt.Printf") {
+				exp := regexp.MustCompile(`\(.*\)`)
+				innerExp := exp.FindString(sourceCode)
+				displayStr := "$write" + innerExp + "; "
+				fmt.Fprintf(out," \t if (%s == 1) begin \n",cNode.cannName)
+				fmt.Fprintf(out," \t \t %s \n",displayStr)
+				fmt.Fprintf(out," \t end \n")
+			}
+		}
+	}
+	fmt.Fprintf(out,"end \n")
+
 	
 }
 
 /* ***************************************************** */
 // ouput the data flow section 
 func OutputDataflow(parsedProgram *argoListener) {
+	var out *os.File
+	out = parsedProgram.outputFile
 	
+	fmt.Fprintf(out,"// -------- Data Flow Section  ---------- \n")	
 }
 
 /* ***************************************************** */
 // ouput the control flow section 
 func OutputControlFlow(parsedProgram *argoListener) {
+	var out *os.File
+	out = parsedProgram.outputFile
 	
+	fmt.Fprintf(out, "// -------- Control Flow Section  ---------- \n")
 }
 /* ***************************************************** */
 
