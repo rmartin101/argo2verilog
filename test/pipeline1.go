@@ -1,6 +1,9 @@
 // Small program to test popelined channels
 // the second stage demonstrates a tiny filter
 
+
+//     input -> pipe 1 -> filter -> pipe2 -> output
+
 package main ;
 
 import ( "fmt" ) ;
@@ -57,7 +60,7 @@ func output(pipe2 chan uint32,done chan bool) {
 		val =	<- pipe2 ;
 		fmt.Printf("output: count: %d got integer 0x%x\n",count,val);
 		count = count +1;
-	};
+	};	total = <- pipe2;	
 
 	done <- true; 
 };

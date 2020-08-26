@@ -114,15 +114,32 @@ func OutputIO(parsedProgram *argoListener) {
 // ouput the data flow section 
 func OutputDataflow(parsedProgram *argoListener) {
 	var out *os.File
+	var sNode *StatementNode
+	var pNode *ParseNode
+	var sourceCode string
+	
 	out = parsedProgram.outputFile
 	
 	fmt.Fprintf(out,"// -------- Data Flow Section  ---------- \n")
 	for _, vNode := range(parsedProgram.varNodeList) {
+		fmt.Fprintf(out,"always @(posedge clk) begin // dataflow for variable %s \n", vNode.sourceName)
 		for _, cNode := range vNode.cfgNodes {
-			fmt.Fprintf(out," at %s writevar %s \n",cNode.cannName,vNode.sourceName)
+			sNode = cNode.statement
+			pNode = sNode.parseDef 
+			sourceCode = pNode.sourceCode
+			// Fixme: Need to parse the expression and get the readvars
+			sourceCode = strings.Replace(sourceCode,"=","<=",1)
+			fmt.Fprintf(out," \t if ( %s == 1 ) begin \n", cNode.cannName);
+			fmt.Fprintf(out," \t \t %s ; \n", sourceCode)
+			fmt.Fprintf(out," \t end \n")
+			fmt.Fprintf(out," \t else \n")
+				
 		}
+		fmt.Fprintf(out," \t begin \n")
+		fmt.Fprintf(out," \t \t %s <= %s ; \n", vNode.sourceName,vNode.sourceName);
+		fmt.Fprintf(out," \t end \n")		
+		fmt.Fprintf(out,"end \n")
 	}
-	
 }
 
 /* ***************************************************** */
