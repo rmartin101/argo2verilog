@@ -57,6 +57,9 @@ func OutputVariables(parsedProgram *argoListener) {
 	for _, cNode := range(parsedProgram.controlFlowGraph) {
 		if ( (len(cNode.predecessors) > 0) || (len(cNode.predecessors_taken) >0) ) {
 			fmt.Fprintf(out," \t reg %s ; \n",cNode.cannName)
+			if len(cNode.successors_taken) > 0 {
+				fmt.Fprintf(out," \t reg %s ; \n",cNode.cannName + "_taken" )				
+			}
 		}
 	}
 	
@@ -146,9 +149,67 @@ func OutputDataflow(parsedProgram *argoListener) {
 // ouput the control flow section 
 func OutputControlFlow(parsedProgram *argoListener) {
 	var out *os.File
+	var entryClauses []string
+	var allClauses string
+	var cName string
+	
 	out = parsedProgram.outputFile
 	
 	fmt.Fprintf(out, "// -------- Control Flow Section  ---------- \n")
+
+	for i, cNode := range(parsedProgram.controlFlowGraph) {
+
+		// skip the start node 
+		if (i == 0 ) {
+			continue 
+		}
+
+		entryClauses = make([]string,0) 
+		allClauses = ""
+		cName = cNode.cannName 
+		// if there must be predecessors for the control node to be reachable 
+		if  ( len(cNode.predecessors) > 0) || (len(cNode.predecessors_taken) > 0) {
+
+			fmt.Fprintf(out,"always @(posedge clk) begin // control for %s \n",cNode.cannName)
+
+			for _, pred := range cNode.predecessors {
+				entryClauses = append(entryClauses,"( " + pred.cannName + " == 1 )" )
+			}
+			
+			for _, p_taken := range cNode.predecessors_taken {
+				entryClauses = append(entryClauses,"( " + p_taken.cannName + "_taken == 1 )") 
+			}
+
+			
+			last := len(entryClauses)-1
+			for j, clause := range entryClauses  {
+				allClauses = allClauses + clause
+				if (j > 0) || ( j < last ) {
+					allClauses = allClauses + " || "
+				}
+			}
+
+			fmt.Fprintf(out," \t if ( " + allClauses +  " ) begin \n")
+
+			switch cNode.cfgType { 
+			case "ifTest":
+				
+			case "forCond": 
+			default:
+				fmt.Fprintf(out," \t \t " + cName + " <=  1 ; \n")
+				fmt.Fprintf(out," \t end \n ")
+				fmt.Fprintf(out," \t else begin \n ")
+				fmt.Fprintf(out," \t \t " + cName + " <=  0 ; \n" )
+				fmt.Fprintf(out," \t end \n ")				
+				
+			}
+			fmt.Fprintf(out,"end \n")
+			fmt.Fprintf(out,"\n")			
+		}
+		
+
+	}
+	
 }
 /* ***************************************************** */
 
