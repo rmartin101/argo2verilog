@@ -1,4 +1,3 @@
-
 /* Argo to Verilog Compiler 
     (c) 2020, Richard P. Martin and contributers 
     
@@ -2797,13 +2796,61 @@ func (l *argoListener) forwardCfgPass() {
 	
 }
 
+// fix the backward edges and make sure the graph is consistent
+// every forward edge must have a backward edge
+// assumes all the forward edges are correct 
+func (l *argoListener) fixBackwardCfgEdges() {
+	var foundit bool
+	
+	// for each node in the cfg graph 
+	for _, cNode := range(l.controlFlowGraph) {
+		// for each successor of the cfgnode
+		for _,succ := range(cNode.successors) {
+			foundit = false 
+			for _, pred := range(succ.predecessors) {
+			// look for the parent node in the predecessor list
+				if (pred.id == cNode.id ) {
+					foundit = true 
+					break; 
+				}
+
+			}
+			// didn't find the parent in the list of successors 
+			if foundit == false {
+				succ.predecessors = append(succ.predecessors,cNode)
+			}
+		} // for each successor
+
+
+		// now do the sucessors-taken nodes
+		for _,succ := range(cNode.successors_taken) {
+			foundit = false 
+			for _, pred := range(succ.predecessors_taken) {
+				// look for the parent node in the predecessor list
+				if (pred.id == cNode.id ) {
+					foundit = true 
+					break; 
+				}
+
+			}
+			// didn't find the parent in the list of successors 
+			if foundit == false {
+				succ.predecessors_taken = append(succ.predecessors_taken,cNode)
+			}
+		} // for each successors_taken 
+		
+	} // for each node in the control-flow graph 
+}
+
+
 
 // top level function to get the control flow graph
 func (l *argoListener) getControlFlowGraph() int {
 
 	// call the forward pass on the control-flow graph 
 	l.forwardCfgPass()
-	// fix backward edges 
+	// fix backward edges
+	l.fixBackwardCfgEdges() 
 	// remove useless nodes
 	return 1 
 }

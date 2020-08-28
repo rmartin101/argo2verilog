@@ -57,7 +57,7 @@ func OutputVariables(parsedProgram *argoListener) {
 	for _, cNode := range(parsedProgram.controlFlowGraph) {
 		if ( (len(cNode.predecessors) > 0) || (len(cNode.predecessors_taken) >0) ) {
 			fmt.Fprintf(out," \t reg %s ; \n",cNode.cannName)
-			if len(cNode.successors_taken) > 0 {
+			if  (len(cNode.successors_taken) > 0) {
 				fmt.Fprintf(out," \t reg %s ; \n",cNode.cannName + "_taken" )				
 			}
 		}
@@ -184,7 +184,7 @@ func OutputControlFlow(parsedProgram *argoListener) {
 			last := len(entryClauses)-1
 			for j, clause := range entryClauses  {
 				allClauses = allClauses + clause
-				if (j > 0) || ( j < last ) {
+				if  ( j < last )  {
 					allClauses = allClauses + " || "
 				}
 			}
