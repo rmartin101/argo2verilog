@@ -43,8 +43,6 @@ func OutputVariables(parsedProgram *argoListener) {
 		}
 	}
 	fmt.Fprintf(out,"// --- Control Bits ---- \n")
-	fmt.Fprintf(out," \t reg clk ; \n")
-	fmt.Fprintf(out," \t reg rst ; \n")
 	fmt.Fprintf(out," \t reg [63:0] cycle_count ; \n")
 
 	
@@ -74,7 +72,7 @@ func OutputInitialization(parsedProgram *argoListener) {
 	
 	fmt.Fprintf(out,"// -------- Initialization Section  ---------- \n")
 	fmt.Fprintf(out,"initial begin \n")
-	fmt.Fprintf(out," \t clk = 0 ; \n ")
+	fmt.Fprintf(out," \t clock = 0 ; \n ")
 	fmt.Fprintf(out," \t rst = 0 ; \n ")
 	fmt.Fprintf(out," \t cycle_count = 0 ; \n")
 	fmt.Fprintf(out," \t %s = 1 ; \n",parsedProgram.controlFlowGraph[0].cannName)
@@ -93,7 +91,7 @@ func OutputIO(parsedProgram *argoListener) {
 	out = parsedProgram.outputFile
 	
 	fmt.Fprintf(out,"// -------- I/O Section  ---------- \n")
-	fmt.Fprintf(out,"always @(posedge clk) begin \n")
+	fmt.Fprintf(out,"always @(posedge clock) begin \n")
 	
 	for _, cNode := range(parsedProgram.controlFlowGraph) {
 		if (cNode.cfgType == "expression" ) {
@@ -127,23 +125,28 @@ func OutputDataflow(parsedProgram *argoListener) {
 	
 	fmt.Fprintf(out,"// -------- Data Flow Section  ---------- \n")
 	for _, vNode := range(parsedProgram.varNodeList) {
-		fmt.Fprintf(out,"always @(posedge clk) begin // dataflow for variable %s \n", vNode.sourceName)
+		fmt.Fprintf(out,"always @(posedge clock) begin // dataflow for variable %s \n", vNode.sourceName)
 		fmt.Fprintf(out,"\t if `RESET begin \n ")
 		fmt.Fprintf(out,"\t \t %s <= 0 ;  \n ",vNode.sourceName )
 		fmt.Fprintf(out," \t end \n")
 		fmt.Fprintf(out," \t else begin \n")			
-		for _, cNode := range vNode.cfgNodes {
+		for i, cNode := range vNode.cfgNodes {
 			sNode = cNode.statement
 			pNode = sNode.parseDef 
 			sourceCode = pNode.sourceCode
 			// Fixme: Need to parse the expression and get the readvars
 			sourceCode = strings.Replace(sourceCode,"=","<=",1)
-			fmt.Fprintf(out," \t \t if ( %s == 1 ) begin \n", cNode.cannName);
+			if i == 0 { fmt.Fprintf(out," \t \t if ( %s == 1 ) begin \n", cNode.cannName);
+			} else {
+				fmt.Fprintf(out," if ( %s == 1 ) begin \n", cNode.cannName);
+			}
 			fmt.Fprintf(out," \t \t \t %s ; \n", sourceCode)
 			fmt.Fprintf(out," \t \t end \n")
-			fmt.Fprintf(out," \t \t else begin \n")
+			fmt.Fprintf(out," \t \t else ")
 				
 		}
+		
+		fmt.Fprintf(out," \t \t begin \n" )
 		fmt.Fprintf(out," \t \t \t %s <= %s ; \n", vNode.sourceName,vNode.sourceName);
 		fmt.Fprintf(out," \t \t end \n")
 		fmt.Fprintf(out," \t end \n")		
@@ -169,9 +172,16 @@ func OutputControlFlow(parsedProgram *argoListener) {
 
 	for i, cNode := range(parsedProgram.controlFlowGraph) {
 
-		// skip the start node 
+		// The start node gets its own clause 
 		if (i == 0 ) {
-			continue 
+			fmt.Fprintf(out,"always @(posedge clock) begin // control for %s \n",cNode.cannName)
+			fmt.Fprintf(out,"\t if `RESET begin \n ")
+			fmt.Fprintf(out,"\t \t %s <= 1 ; \n ", cNode.cannName)
+			fmt.Fprintf(out,"\t end else begin \n ")
+			fmt.Fprintf(out," \t \t " + cNode.cannName + " <=  0 ; \n")
+			fmt.Fprintf(out," \t end \n ")				
+			fmt.Fprintf(out,"end \n")
+			continue
 		}
 
 
@@ -190,7 +200,7 @@ func OutputControlFlow(parsedProgram *argoListener) {
 				}
 			}
 
-			fmt.Fprintf(out,"always @(posedge clk) begin // control for %s \n",cNode.cannName)	
+			fmt.Fprintf(out,"always @(posedge clock) begin // control for %s \n",cNode.cannName)	
 
 			fmt.Fprintf(out,"\t if `RESET begin \n ")
 			
@@ -236,6 +246,7 @@ func OutputControlFlow(parsedProgram *argoListener) {
 				fmt.Fprintf(out," \t \t \t else begin \n")
 				fmt.Fprintf(out," \t \t \t \t %s <= 0 ; %s <= 1 ; \n",takenName,cName)
 				fmt.Fprintf(out," \t \t \t end \n")
+				fmt.Fprintf(out," \t \t end \n")				
 				fmt.Fprintf(out," \t \t else begin \n")
 				fmt.Fprintf(out," \t \t \t \t %s <= 0 ; %s <= 0 ; \n",takenName,cName)
 				fmt.Fprintf(out," \t \t end \n")				
@@ -257,6 +268,7 @@ func OutputControlFlow(parsedProgram *argoListener) {
 				fmt.Fprintf(out," \t \t \t else begin \n")
 				fmt.Fprintf(out," \t \t \t \t %s <= 0 ; %s <= 1 ; \n",takenName,cName)
 				fmt.Fprintf(out," \t \t \t end \n")
+				fmt.Fprintf(out," \t \t end \n")				
 				fmt.Fprintf(out," \t \t else begin \n")
 				fmt.Fprintf(out," \t \t \t \t %s <= 0 ; %s <= 0 ; \n",takenName,cName)
 				fmt.Fprintf(out," \t \t end \n")
@@ -270,7 +282,7 @@ func OutputControlFlow(parsedProgram *argoListener) {
 				
 			}
 			fmt.Fprintf(out,"\t end \n")
-			fmt.Fprintf(out,"end // end posedge clk \n ")
+			fmt.Fprintf(out,"end // end posedge clock \n ")
 			fmt.Fprintf(out,"\n")			
 		}
 		
@@ -279,21 +291,34 @@ func OutputControlFlow(parsedProgram *argoListener) {
 	
 }
 /* ***************************************************** */
-
+func OutputCycleCounter(out *os.File) { 
+	fmt.Fprintf(out,"// the cycle counter for performance and debugging \n")
+	fmt.Fprintf(out,"always @(posedge clock) begin \n")
+	fmt.Fprintf(out," \t if `RESET begin \n")
+	fmt.Fprintf(out," \t \t cycle_count <= 0; \n")
+	fmt.Fprintf(out," \t    end    \n")
+	fmt.Fprintf(out," \t    else begin \n")
+	fmt.Fprintf(out," \t \t cycle_count <= cycle_count + 1 ; \n")
+	fmt.Fprintf(out," \t    end \n")
+	fmt.Fprintf(out," end \n")
+}
 func OutputVerilog(parsedProgram *argoListener) {
 	var out *os.File
 	// out := parsedProgram.outputFile
 	out = parsedProgram.outputFile 
 	
-	fmt.Fprintf(out,"module %s();\n",parsedProgram.moduleName)
-
+	fmt.Fprintf(out,"module %s(clock, rst);\n",parsedProgram.moduleName)
+	fmt.Fprintf(out,"input clock;  // clock x1 \n") 
+	fmt.Fprintf(out,"input rst;   // reset. Can set to positve or negative\n")
+	fmt.Fprintf(out,"\n")
+	
 	fmt.Fprintf(out,"\n `define RESET (rst) \n")
 
 	fmt.Fprintf(out,"\n")
 	
 	OutputVariables(parsedProgram)
 
-	OutputInitialization(parsedProgram)
+	//OutputInitialization(parsedProgram)
 
 	OutputIO(parsedProgram)
 
@@ -301,6 +326,8 @@ func OutputVerilog(parsedProgram *argoListener) {
 
 	OutputControlFlow(parsedProgram)
 
+	OutputCycleCounter(out)
+	
 	fmt.Fprintf(out,"endmodule\n")
 }
 
