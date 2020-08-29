@@ -152,6 +152,9 @@ func OutputControlFlow(parsedProgram *argoListener) {
 	var entryClauses []string
 	var allClauses string
 	var cName string
+	var stmtNode,testNode *StatementNode
+	var pNode  *ParseNode 
+	var condition string
 	
 	out = parsedProgram.outputFile
 	
@@ -170,8 +173,18 @@ func OutputControlFlow(parsedProgram *argoListener) {
 		// if there must be predecessors for the control node to be reachable 
 		if  ( len(cNode.predecessors) > 0) || (len(cNode.predecessors_taken) > 0) {
 
-			fmt.Fprintf(out,"always @(posedge clk) begin // control for %s \n",cNode.cannName)
+			fmt.Fprintf(out,"always @(posedge clk) begin // control for %s \n",cNode.cannName)	
 
+			fmt.Fprintf(out,"\t if `RESET begin \n ")
+			
+			fmt.Fprintf(out,"\t \t %s <= 0 ; \n ", cNode.cannName)
+
+			if (cNode.cfgType == "ifTest") || (cNode.cfgType == "forCond" ) {
+				fmt.Fprintf(out,"\t \t %s <= 0 ; \n ", cNode.cannName + "_taken" )
+			}
+			
+			fmt.Fprintf(out,"\t end else begin \n ")
+			
 			for _, pred := range cNode.predecessors {
 				entryClauses = append(entryClauses,"( " + pred.cannName + " == 1 )" )
 			}
@@ -189,21 +202,44 @@ func OutputControlFlow(parsedProgram *argoListener) {
 				}
 			}
 
-			fmt.Fprintf(out," \t if ( " + allClauses +  " ) begin \n")
+			fmt.Fprintf(out," \t \t if ( " + allClauses +  " ) begin \n")
 
 			switch cNode.cfgType { 
 			case "ifTest":
+				stmtNode = cNode.statement
+				testNode = stmtNode.ifTest
+				pNode = testNode.parseDef
+				condition = pNode.sourceCode
 				
-			case "forCond": 
+				fmt.Fprintf(out," \t \t \t if %s begin \n ",condition)
+				takenName := cName + "_taken"
+				
+				fmt.Fprintf(out," \t \t \t \t %s <= 1 ; %s <= 0 ; \n",takenName,cName)
+				fmt.Fprintf(out," \t \t \t end \n")
+				fmt.Fprintf(out," \t \t \t else begin \n")
+				fmt.Fprintf(out," \t \t \t \t %s <= 0 ; %s <= 1 ; \n",takenName,cName)
+				fmt.Fprintf(out," \t \t \t end \n")
+				fmt.Fprintf(out," \t \t else begin \n")
+				fmt.Fprintf(out," \t \t \t \t %s <= 0 ; %s <= 0 ; \n",takenName,cName)
+				fmt.Fprintf(out," \t \t end \n")				
+			case "forCond":
+				stmtNode = cNode.statement
+				testNode = stmtNode.forCond
+				pNode = testNode.parseDef
+				condition = pNode.sourceCode
+				
+				fmt.Printf("got forCondition %s ",condition )
+				
 			default:
-				fmt.Fprintf(out," \t \t " + cName + " <=  1 ; \n")
-				fmt.Fprintf(out," \t end \n ")
-				fmt.Fprintf(out," \t else begin \n ")
-				fmt.Fprintf(out," \t \t " + cName + " <=  0 ; \n" )
-				fmt.Fprintf(out," \t end \n ")				
+				fmt.Fprintf(out," \t \t \t " + cName + " <=  1 ; \n")
+				fmt.Fprintf(out," \t \t end \n ")
+				fmt.Fprintf(out," \t \t else begin \n ")
+				fmt.Fprintf(out," \t \t \t " + cName + " <=  0 ; \n" )
+				fmt.Fprintf(out," \t \t end \n ")				
 				
 			}
-			fmt.Fprintf(out,"end \n")
+			fmt.Fprintf(out,"\t end \n")
+			fmt.Fprintf(out,"end // end posedge clk \n ")
 			fmt.Fprintf(out,"\n")			
 		}
 		
