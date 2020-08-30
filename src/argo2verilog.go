@@ -156,7 +156,7 @@ type VariableNode struct {
 	funcName  string      // which function is this variable defined in
 	primType string        // primitive type, e.g. int, float, uint.
 	numBits     int           // number of bits in this variable
-	canName string        // cannonical name for Verilog: package_row_col_func_name
+	canName string        // cannonical name for Verilog: name_func_row_col
 	depth    int          // depth of a channel (number of element in the queue)               
 	numDim   int          // number of dimension if an array
 	dimensions []int      // the size of the dimensions 
@@ -430,11 +430,11 @@ type argoListener struct {
 	funcNameMap map[string]*FunctionNode  //  maps the names of the functions to the function node 
 	statementGraph   []*StatementNode   // list of statement nodes.
 	controlFlowGraph []*CfgNode         // list of control flow nodes
+	debugFlags     uint64               // flags for debugging. 1 = verilog control 
 	moduleName    string                // name of the module for Verilog/VHDL
 	outputFile       *os.File            // output file writer
 	
 }
-
 
 // get a node ID in the AST tree 
 func (l *argoListener) getAstID(c antlr.Tree) int {
@@ -866,6 +866,7 @@ func (l *argoListener) getAllVariables() int {
 					varNode.sourceName  = varName
 					varNode.sourceRow = node.sourceLineStart
 					varNode.sourceCol = node.sourceColStart
+					varNode.canName = varName + "_" + funcName.sourceCode + "_" + strconv.Itoa(node.sourceLineStart) + "_" + strconv.Itoa(node.sourceColStart)
 					varNode.primType = varTypeStr
 					varNode.numBits = numBits
 					varNode.visited = false
@@ -3490,10 +3491,13 @@ func main() {
 	var printASTasGraphViz_p,printASTasText_p,printVarNames_p,printFuncNames_p,printStmtGraph_p,parseCheck_p *bool
 	var printStmtGraphGV_p *bool
 	var printCntlGraph_p *bool
+	var debugFlags   uint64
+	var debugFlags_p *string 
 	
 	inputFileName_p = nil
 	outputFileName_p = nil
 	max_parse_errors = 50
+	debugFlags = 0
 	
 	printASTasGraphViz_p = flag.Bool("gv",false,"print the parse tree in GraphViz format")
 	printASTasText_p = flag.Bool("parse",false,"print the parse tree in text format")	
@@ -3503,6 +3507,8 @@ func main() {
 	printFuncNames_p = flag.Bool("func",false,"print all functions")
 	printCntlGraph_p = flag.Bool("cntl",false,"print the control-flow graph")
 	parseCheck_p     = flag.Bool("check",false,"check for correct syntax ")
+
+	debugFlags_p     = flag.String("dbg","","debug flags 1=verilog control ")
 	inputFileName_p = flag.String("i","","the input file name")
 	outputFileName_p = flag.String("o","","the output file name")
 
@@ -3516,7 +3522,18 @@ func main() {
 		parsedProgram = parseArgo(inputFileName_p)
 	}
 
+	if ( !( *debugFlags_p == "")) {
+		d, err := strconv.ParseInt(*debugFlags_p,10,64)
+		if (err != nil) {
+			fmt.Printf("error setting debug flags, exiting \n")
+			os.Exit(-1)
+		} else {
+			debugFlags = uint64(d)
+		}
+	}
 
+	parsedProgram.debugFlags = debugFlags
+	
 	// these are the top-level main causes of the compiler 
 	parsedProgram.getAllVariables()  // must call get all variables first 
 	parsedProgram.getAllFunctions()  // then get all functions 

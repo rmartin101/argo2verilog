@@ -136,6 +136,8 @@ func OutputDataflow(parsedProgram *argoListener) {
 			sourceCode = pNode.sourceCode
 			// Fixme: Need to parse the expression and get the readvars
 			sourceCode = strings.Replace(sourceCode,"=","<=",1)
+			
+			
 			if i == 0 { fmt.Fprintf(out," \t \t if ( %s == 1 ) begin \n", cNode.cannName);
 			} else {
 				fmt.Fprintf(out," if ( %s == 1 ) begin \n", cNode.cannName);
@@ -165,8 +167,12 @@ func OutputControlFlow(parsedProgram *argoListener) {
 	var stmtNode,testNode *StatementNode
 	var pNode  *ParseNode 
 	var condition string
+	var debugFlags uint64 
+	var DBG_CONTROL_MASK uint64 
 	
 	out = parsedProgram.outputFile
+	debugFlags = parsedProgram.debugFlags
+	DBG_CONTROL_MASK = 0x1
 	
 	fmt.Fprintf(out, "// -------- Control Flow Section  ---------- \n")
 
@@ -242,9 +248,16 @@ func OutputControlFlow(parsedProgram *argoListener) {
 				takenName := cName + "_taken"
 				
 				fmt.Fprintf(out," \t \t \t \t %s <= 1 ; %s <= 0 ; \n",takenName,cName)
+				if  ((debugFlags & DBG_CONTROL_MASK) == DBG_CONTROL_MASK) {
+					fmt.Fprintf(out, " \t \t $display(\"%%5d,%%s,%%4d, at control node %%s taken \",cycle_count,`__FILE__,`__LINE__,\"" + cName + "\" ) ; \n") ;
+				}
 				fmt.Fprintf(out," \t \t \t end \n")
 				fmt.Fprintf(out," \t \t \t else begin \n")
 				fmt.Fprintf(out," \t \t \t \t %s <= 0 ; %s <= 1 ; \n",takenName,cName)
+
+				if  ((debugFlags & DBG_CONTROL_MASK) == DBG_CONTROL_MASK) {
+					fmt.Fprintf(out, " \t \t $display(\"%%5d,%%s,%%4d, at control node %%s not_taken \",cycle_count,`__FILE__,`__LINE__,\"" + cName + "\" ) ; \n") ;
+				}				
 				fmt.Fprintf(out," \t \t \t end \n")
 				fmt.Fprintf(out," \t \t end \n")				
 				fmt.Fprintf(out," \t \t else begin \n")
@@ -263,7 +276,8 @@ func OutputControlFlow(parsedProgram *argoListener) {
 				fmt.Fprintf(out," \t \t \t if %s begin \n ",condition)
 				takenName := cName + "_taken"
 				
-				fmt.Fprintf(out," \t \t \t \t %s <= 1 ; %s <= 0 ; \n",takenName,cName)
+			fmt.Fprintf(out," \t \t \t \t %s <= 1 ; %s <= 0 ; \n",takenName,cName)
+			
 				fmt.Fprintf(out," \t \t \t end \n")
 				fmt.Fprintf(out," \t \t \t else begin \n")
 				fmt.Fprintf(out," \t \t \t \t %s <= 0 ; %s <= 1 ; \n",takenName,cName)
@@ -275,6 +289,12 @@ func OutputControlFlow(parsedProgram *argoListener) {
 				
 			default:
 				fmt.Fprintf(out," \t \t \t " + cName + " <=  1 ; \n")
+				if cNode.cfgType == "finishNode" {
+					fmt.Fprintf(out," \t \t \t $finish() ; \n" )
+				}
+				if  ((debugFlags & DBG_CONTROL_MASK) == DBG_CONTROL_MASK) {
+					fmt.Fprintf(out, " \t \t $display(\"%%5d,%%s,%%4d, at control node %%s \",cycle_count,`__FILE__,`__LINE__,\"" + cName + "\" ) ; \n") ;
+				}
 				fmt.Fprintf(out," \t \t end \n ")
 				fmt.Fprintf(out," \t \t else begin \n ")
 				fmt.Fprintf(out," \t \t \t " + cName + " <=  0 ; \n" )
