@@ -249,14 +249,14 @@ func OutputControlFlow(parsedProgram *argoListener) {
 				
 				fmt.Fprintf(out," \t \t \t \t %s <= 1 ; %s <= 0 ; \n",takenName,cName)
 				if  ((debugFlags & DBG_CONTROL_MASK) == DBG_CONTROL_MASK) {
-					fmt.Fprintf(out, " \t \t $display(\"%%5d,%%s,%%4d, at control node %%s taken \",cycle_count,`__FILE__,`__LINE__,\"" + cName + "\" ) ; \n") ;
+					fmt.Fprintf(out, " \t \t $display(\"%%5d,%%s,%%4d, at control node %%s if_taken \",cycle_count,`__FILE__,`__LINE__,\"" + cName + "\" ) ; \n") ;
 				}
 				fmt.Fprintf(out," \t \t \t end \n")
 				fmt.Fprintf(out," \t \t \t else begin \n")
 				fmt.Fprintf(out," \t \t \t \t %s <= 0 ; %s <= 1 ; \n",takenName,cName)
 
 				if  ((debugFlags & DBG_CONTROL_MASK) == DBG_CONTROL_MASK) {
-					fmt.Fprintf(out, " \t \t $display(\"%%5d,%%s,%%4d, at control node %%s not_taken \",cycle_count,`__FILE__,`__LINE__,\"" + cName + "\" ) ; \n") ;
+					fmt.Fprintf(out, " \t \t $display(\"%%5d,%%s,%%4d, at control node %%s if_not_taken \",cycle_count,`__FILE__,`__LINE__,\"" + cName + "\" ) ; \n") ;
 				}				
 				fmt.Fprintf(out," \t \t \t end \n")
 				fmt.Fprintf(out," \t \t end \n")				
@@ -277,10 +277,15 @@ func OutputControlFlow(parsedProgram *argoListener) {
 				takenName := cName + "_taken"
 				
 			fmt.Fprintf(out," \t \t \t \t %s <= 1 ; %s <= 0 ; \n",takenName,cName)
-			
+				if  ((debugFlags & DBG_CONTROL_MASK) == DBG_CONTROL_MASK) {
+					fmt.Fprintf(out, " \t \t $display(\"%%5d,%%s,%%4d, at control node %%s for_taken \",cycle_count,`__FILE__,`__LINE__,\"" + cName + "\" ) ; \n") ;
+				}			
 				fmt.Fprintf(out," \t \t \t end \n")
 				fmt.Fprintf(out," \t \t \t else begin \n")
 				fmt.Fprintf(out," \t \t \t \t %s <= 0 ; %s <= 1 ; \n",takenName,cName)
+				if  ((debugFlags & DBG_CONTROL_MASK) == DBG_CONTROL_MASK) {
+					fmt.Fprintf(out, " \t \t $display(\"%%5d,%%s,%%4d, at control node %%s for_not_taken \",cycle_count,`__FILE__,`__LINE__,\"" + cName + "\" ) ; \n") ;
+				}
 				fmt.Fprintf(out," \t \t \t end \n")
 				fmt.Fprintf(out," \t \t end \n")				
 				fmt.Fprintf(out," \t \t else begin \n")
