@@ -2281,7 +2281,7 @@ func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
 		}
 	}
 	if (stmt.stmtType != "startNode") { 
-		cnode.predecessors = append(cnode.predecessors, getPredStmtCfg(stmt))
+		// cnode.predecessors = append(cnode.predecessors, getPredStmtCfg(stmt))
 	}
 
 }
