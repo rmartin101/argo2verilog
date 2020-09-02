@@ -266,7 +266,7 @@ func OutputControlFlow(parsedProgram *argoListener) {
 			case "forCond":
 				if (cNode.subStmt != nil ) {
 					stmtNode = cNode.subStmt
-					pNode = testNode.parseDef
+					pNode = stmtNode.parseDef
 					condition = "( " + pNode.sourceCode + " ) "
 				} else {
 					condition = "( 1 == 1 )"
