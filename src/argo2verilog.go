@@ -2264,14 +2264,45 @@ func addLinearToCfg(cnode *CfgNode, stmt *StatementNode) {
 			}
 
 			// if the cfg node is an eos and the statement is a for statement, add the
-			// edge to the for conditional cfgNode 
+			// edge to the for conditional cfgNode
 			if (len(succ.cfgNodes) > 0) {
+
+				// hack for an eos node to a for statement
+				// 
 				if ((succ.stmtType == "forStmt") && ( cnode.cfgType == "eos"))  {
+					var cond,init,post *CfgNode 
+					
 					for _, cfgNode := range succ.cfgNodes {
+						if (cfgNode.cfgType == "forInit") {
+							init = cfgNode 
+						}
+
 						if (cfgNode.cfgType == "forCond") {
-							cnode.successors = append(cnode.successors,cfgNode)
+							cond = cfgNode 
+						}
+						
+						if (cfgNode.cfgType == "forPost") {
+							post = cfgNode 
+						}						
+					}
+
+					// if the eos occurs before the succesor, use the
+					// init as the successor, else use the condition
+					// assumes there is always a condition, even if implied 
+					if (cnode.id < succ.id) {
+						if (init != nil) {
+							cnode.successors = append(cnode.successors,init)
+						} else {
+							cnode.successors = append(cnode.successors,cond)
+						}
+					} else { // eos is after the other node 
+						if (post != nil) { // no post statemetn 
+							cnode.successors = append(cnode.successors,post)
+						} else {
+							cnode.successors = append(cnode.successors,cond)
 						}
 					}
+
 				} else { 
 					cnode.successors = append(cnode.successors,succ.cfgNodes[0])
 				}
