@@ -2511,7 +2511,7 @@ func (l *argoListener) forwardCfgPass() {
 				forCfgInit.cfgType = "forInit"
 				forCfgInit.subStmt = currentStmt.forInit
 				forCfgInit.subStmtID = currentStmt.forInit.id
-				l.controlFlowGraph = append(l.controlFlowGraph,forCfgInit)				
+				l.controlFlowGraph = append(l.controlFlowGraph,forCfgInit)	
 				currentStmt.forInit.visited = true 
 			}
 			if (currentStmt.forCond != nil ) {
@@ -2519,14 +2519,14 @@ func (l *argoListener) forwardCfgPass() {
 				forCfgCond.cfgType = "forCond"
 				forCfgCond.subStmt = currentStmt.forCond
 				forCfgCond.subStmtID = currentStmt.forCond.id 
-				l.controlFlowGraph = append(l.controlFlowGraph,forCfgCond)				
+				l.controlFlowGraph = append(l.controlFlowGraph,forCfgCond)
 				currentStmt.forCond.visited = true 
 			} else {
 				_, forCfgCond := l.newCFGnode(currentStmt, 4)
 				forCfgCond.cfgType = "forCond"
 				forCfgCond.subStmt = nil
 				forCfgCond.subStmtID = -1
-				l.controlFlowGraph = append(l.controlFlowGraph,forCfgCond)				
+				l.controlFlowGraph = append(l.controlFlowGraph,forCfgCond)
 			}
 
 			if (currentStmt.forPost != nil ) {
@@ -2534,7 +2534,7 @@ func (l *argoListener) forwardCfgPass() {
 				forCfgPost.cfgType = "forPost"
 				forCfgPost.subStmt = currentStmt.forPost
 				forCfgPost.subStmtID = currentStmt.forPost.id
-				l.controlFlowGraph = append(l.controlFlowGraph,forCfgPost)				
+				l.controlFlowGraph = append(l.controlFlowGraph,forCfgPost)	
 				currentStmt.forPost.visited = true 
 			} else {
 				_, forCfgPost := l.newCFGnode(currentStmt, 5)
@@ -2563,7 +2563,7 @@ func (l *argoListener) forwardCfgPass() {
 				ifSimpleCfg.cfgType = "ifSimple"
 				ifSimpleCfg.subStmt = currentStmt.ifSimple
 				ifSimpleCfg.subStmtID = currentStmt.ifSimple.id 
-				l.controlFlowGraph = append(l.controlFlowGraph,ifSimpleCfg)				
+				l.controlFlowGraph = append(l.controlFlowGraph,ifSimpleCfg)
 				currentStmt.ifSimple.visited = true 
 			}
 			
@@ -2572,7 +2572,7 @@ func (l *argoListener) forwardCfgPass() {
 				ifTestCfg.cfgType = "ifTest"
 				ifTestCfg.subStmt = currentStmt.ifTest
 				ifTestCfg.subStmtID = currentStmt.ifTest.id 
-				l.controlFlowGraph = append(l.controlFlowGraph,ifTestCfg)				
+				l.controlFlowGraph = append(l.controlFlowGraph,ifTestCfg)
 				currentStmt.ifTest.visited = true 
 
 			}
@@ -2720,6 +2720,14 @@ func (l *argoListener) forwardCfgPass() {
 				} else {
 					initCfg.successors = append(initCfg.successors,blockCfg)
 				}
+
+				// we need to add the list of variales to the init statement 
+				stmtNode := initCfg.subStmt
+				// add the init condition variable node 
+				for _, varNode := range(stmtNode.writeVars) {
+					varNode.cfgNodes = append(varNode.cfgNodes,initCfg) 
+				}
+				
 			}
 
 			// main clause if there is a config node 
@@ -2748,6 +2756,14 @@ func (l *argoListener) forwardCfgPass() {
 					eosCfg.successors= append(eosCfg.successors,prevCfg)
 				}
 				postCfg.predecessors = append(postCfg.predecessors,tailCfg)
+
+
+				/// the post statement might have write variables
+				stmtNode := postCfg.subStmt
+				// add the post condition variable node 
+				for _, varNode := range(stmtNode.writeVars) {
+					varNode.cfgNodes = append(varNode.cfgNodes,postCfg) 
+				}
 				
 			} else {
 				if (condCfg != nil) {

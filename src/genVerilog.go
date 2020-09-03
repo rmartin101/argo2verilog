@@ -117,7 +117,7 @@ func OutputIO(parsedProgram *argoListener) {
 // ouput the data flow section 
 func OutputDataflow(parsedProgram *argoListener) {
 	var out *os.File
-	var sNode *StatementNode
+	var sMainNode,sSubNode,sNode *StatementNode
 	var pNode *ParseNode
 	var sourceCode string
 	
@@ -131,9 +131,17 @@ func OutputDataflow(parsedProgram *argoListener) {
 		fmt.Fprintf(out," \t end \n")
 		fmt.Fprintf(out," \t else begin \n")			
 		for i, cNode := range vNode.cfgNodes {
-			sNode = cNode.statement
+			sMainNode = cNode.statement
+			sSubNode = cNode.subStmt 
+			// if a cfg node has a sub-node, it is an if or for conditional/post 
+			if (sSubNode != nil) {
+				sNode = sSubNode 				
+			} else {
+				sNode = sMainNode 
+			}
 			pNode = sNode.parseDef 
 			sourceCode = pNode.sourceCode
+
 			// Fixme: Need to parse the expression and get the readvars
 			sourceCode = strings.Replace(sourceCode,"=","<=",1)
 			
@@ -148,7 +156,7 @@ func OutputDataflow(parsedProgram *argoListener) {
 				
 		}
 		
-		fmt.Fprintf(out," \t \t begin \n" )
+		fmt.Fprintf(out," begin \n" )
 		fmt.Fprintf(out," \t \t \t %s <= %s ; \n", vNode.sourceName,vNode.sourceName);
 		fmt.Fprintf(out," \t \t end \n")
 		fmt.Fprintf(out," \t end \n")		
