@@ -2890,6 +2890,33 @@ func (l *argoListener) fixBackwardCfgEdges() {
 	} // for each node in the control-flow graph 
 }
 
+// add the list of variables that write in a CFG node to the CFG graph
+func (l *argoListener) addVarsToCfgNodes() {
+	for _, vNode := range(l.varNodeList) {
+		for _, cNode := range vNode.cfgNodes {
+			cNode.writeVars = append(cNode.writeVars,vNode)
+		}
+	}
+}
+// for now, insert an empty control flow node after every write node
+// need to fix this to property look for the read/write vars and only
+// add a bubble if there is a read after a write of the same variable 
+func (l *argoListener) resolveDataflowHazards() {
+	var stmtNode  *StatementNode
+	var bubbleCfgNode *CfgNode
+	
+	for _, cNode := range(l.controlFlowGraph) {
+		if len(cNode.writeVars) > 0 {
+			// create a new CFG node
+			stmtNode = cNode.statement
+			_, bubbleCfgNode = l.newCFGnode(stmtNode, 7)
+			bubbleCfgNode.cfgType = "bubble"
+			l.controlFlowGraph = append(l.controlFlowGraph,bubbleCfgNode)
+
+			// insert the bubble into the control flow graph
+		}
+	}
+}
 
 
 // top level function to get the control flow graph
@@ -2899,7 +2926,10 @@ func (l *argoListener) getControlFlowGraph() int {
 	l.forwardCfgPass()
 	// fix backward edges
 	l.fixBackwardCfgEdges() 
-	// remove useless nodes
+	// link the variable write/reads to the control flow graph nodes 
+	l.addVarsToCfgNodes()
+	// add delays in the cfg when there are data flow hazards
+	l.resolveDataflowHazards()
 	return 1 
 }
 

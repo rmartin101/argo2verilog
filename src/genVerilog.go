@@ -120,8 +120,13 @@ func OutputDataflow(parsedProgram *argoListener) {
 	var sMainNode,sSubNode,sNode *StatementNode
 	var pNode *ParseNode
 	var sourceCode string
+	var debugFlags uint64 
+	var DBG_CONTROL_MASK uint64
 	
 	out = parsedProgram.outputFile
+
+	debugFlags = parsedProgram.debugFlags
+	DBG_CONTROL_MASK = 0x1
 	
 	fmt.Fprintf(out,"// -------- Data Flow Section  ---------- \n")
 	for _, vNode := range(parsedProgram.varNodeList) {
@@ -151,6 +156,11 @@ func OutputDataflow(parsedProgram *argoListener) {
 				fmt.Fprintf(out," if ( %s == 1 ) begin \n", cNode.cannName);
 			}
 			fmt.Fprintf(out," \t \t \t %s ; \n", sourceCode)
+
+			if  ((debugFlags & DBG_CONTROL_MASK) == DBG_CONTROL_MASK) {
+					fmt.Fprintf(out, " \t \t $display(\"%%5d,%%s,%%4d, dataflow %%s \",cycle_count,`__FILE__,`__LINE__,\"" + sourceCode + "\" ) ; \n") ;
+			}
+			
 			fmt.Fprintf(out," \t \t end \n")
 			fmt.Fprintf(out," \t \t else ")
 				
@@ -302,11 +312,11 @@ func OutputControlFlow(parsedProgram *argoListener) {
 				
 			default:
 				fmt.Fprintf(out," \t \t \t " + cName + " <=  1 ; \n")
-				if cNode.cfgType == "finishNode" {
-					fmt.Fprintf(out," \t \t \t $finish() ; \n" )
-				}
 				if  ((debugFlags & DBG_CONTROL_MASK) == DBG_CONTROL_MASK) {
 					fmt.Fprintf(out, " \t \t $display(\"%%5d,%%s,%%4d, at control node %%s \",cycle_count,`__FILE__,`__LINE__,\"" + cName + "\" ) ; \n") ;
+				}
+				if cNode.cfgType == "finishNode" {
+					fmt.Fprintf(out," \t \t \t $finish() ; \n" )
 				}
 				fmt.Fprintf(out," \t \t end \n ")
 				fmt.Fprintf(out," \t \t else begin \n ")
