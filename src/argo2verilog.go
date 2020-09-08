@@ -2901,19 +2901,78 @@ func (l *argoListener) addVarsToCfgNodes() {
 // for now, insert an empty control flow node after every write node
 // need to fix this to property look for the read/write vars and only
 // add a bubble if there is a read after a write of the same variable 
+
 func (l *argoListener) resolveDataflowHazards() {
 	var stmtNode  *StatementNode
 	var bubbleCfgNode *CfgNode
+	var cfgPosition int
 	
 	for _, cNode := range(l.controlFlowGraph) {
-		if len(cNode.writeVars) > 0 {
+
+	
+		// if there are writevars, add a new control node which does nothing
+		// the links will change as below:
+		// predecessors p_taken         Pred   p_takn
+		// |               |             V      V
+		// V               V            orig Node
+		//   -----------                     | successor edge 
+		//  | Orig node|                     V  
+		//   ----------                |---bubble--_|
+		// V              V            V            V
+		// sucessors     s_taken      sucessors s_taken 
+		if len(cNode.writeVars) > 0 {  // fixme: change to check for read after write 
 			// create a new CFG node
 			stmtNode = cNode.statement
-			_, bubbleCfgNode = l.newCFGnode(stmtNode, 7)
+
+			// in order to give the node a unique name, we have to find the positions
+			// of the cfg node in the statement node and add 7 to it
+			for i, cfgPos := range stmtNode.cfgNodes {
+				if cfgPos.id == cNode.id {
+					cfgPosition = i;
+					break; 
+				}
+			}
+			_, bubbleCfgNode = l.newCFGnode(stmtNode, cfgPosition + 9)
+			
 			bubbleCfgNode.cfgType = "bubble"
 			l.controlFlowGraph = append(l.controlFlowGraph,bubbleCfgNode)
 
-			// insert the bubble into the control flow graph
+			// copy the successors edges to the bubble node 
+			bubbleCfgNode.successors_taken = append(bubbleCfgNode.successors_taken,cNode.successors_taken...)
+			bubbleCfgNode.successors = append(bubbleCfgNode.successors,cNode.successors...)
+
+			// set the successors_taken and successors of the cNode predecessors to the bubble
+			// for each successor 
+			for _, succNode := range cNode.successors {
+				// for each predecessors in the successsor 
+				for j, predNode := range succNode.predecessors {
+					// swap the orignal cnode with the bubble 
+					if predNode.id == cNode.id {
+						succNode.predecessors[j] = bubbleCfgNode
+					}
+				}
+			}
+
+			// do the same thing for the successors_taken node 
+			for _, succNode := range cNode.successors_taken {
+				// for each predecessors in the successsor 
+				for j, predNode := range succNode.predecessors_taken {
+					// swap the orignal cnode with the bubble 
+					if predNode.id == cNode.id {
+						succNode.predecessors_taken[j] = bubbleCfgNode
+					}
+				}
+			}
+
+			
+			// set the orig node successor to the bubble
+			cNode.successors = nil
+			cNode.successors_taken = nil
+			cNode.successors = append(cNode.successors, bubbleCfgNode)
+
+			// set the bubble predecessor to the orig node 
+			bubbleCfgNode.predecessors =  append(bubbleCfgNode.predecessors, cNode)
+
 		}
 	}
 }
