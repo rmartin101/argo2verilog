@@ -34,7 +34,11 @@ func main() {
 	if  (k >= (i + 3)) {
 		i = 4;
 		k = i + i;
-		k,i = blargo(j);
+		//  blargo_i_param_0 = j 
+		//  control to blargo
+		//  i  = blargo_retval_0
+		//  j =  blargo_retval_1
+		k,i = blargo(j); 
 		fmt.Printf("K is: %d \n", k) ;
 	} else {
 		i = 4;

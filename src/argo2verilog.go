@@ -166,6 +166,15 @@ type VariableNode struct {
 	visited        bool    // flag for if this node is visited 
 }
 
+// a scope is a set of local variable names to global name mappings
+type VarScope struct {
+	id int ;   // id of this scope 
+	varNameMap map[string]*VariableNode  // map of source code names to  cannonical names
+	statements *[]StatementNode         // is
+	cfgNodes  []*CfgNode  // control flow nodes which are in this scope 	
+	visited        bool    // flag if visited 	
+}
+
 
 // holds the nodes for the statement control flow graph
 // The statement graph is modeled on a control flow graph. However, we model blocks as
@@ -187,8 +196,9 @@ type StatementNode struct {
 	sourceRow      int        // row in the source code
 	sourceCol      int        // column in the source code
 	funcName       string      // which function is this statement is defined in
+	vScope   *VarScope 
 	readVars       []*VariableNode  // variables read in this statement
-	writeVars      []*VariableNode  // variables written to in this statement 
+	writeVars      []*VariableNode  // variables written to in this statement
 	predecessors   []*StatementNode // list of predicessors
 	predIDs        []int       // IDs of the predicessors
 	successors     []*StatementNode // list of successors
@@ -407,6 +417,7 @@ func (l *ArgoErrorListener) ReportContextSensitivity(recognizer antlr.Parser, df
 	}
 }
 
+
 // this is the main top-level structure 
 // it holds the state for the whole program
 type argoListener struct {
@@ -421,11 +432,9 @@ type argoListener struct {
 	nextVarID int                    // IDs for the Var nodes
 	nextStatementID int              // IDs for the statement nodes
 	nextCfgID int                    // IDs for the control flow nodes 
-	varNode2ID map[interface{}]int   //  a map of the variable pointers to small integer ID mapping
 	root *ParseNode                  // root of an absract syntax tree 
 	ParseNodeList []*ParseNode        // list of nodes of an absract syntax tree, root has id = 0 
 	varNodeList []*VariableNode       // list of all variables in the program
-	varNameMap map[string]*VariableNode  // map of cannonical names to variable nodes
 	funcNodeList  []*FunctionNode     // list of functions
 	funcNameMap map[string]*FunctionNode  //  maps the names of the functions to the function node 
 	statementGraph   []*StatementNode   // list of statement nodes.
@@ -918,6 +927,16 @@ func (l *argoListener) getAllVariables() int {
 
 	return 1
 	
+}
+
+
+// given an expression, return the same expression with the variables replaced by
+// one with their canonical global names 
+
+func (l *argoListener) flattenVarsInExpression() string {
+
+
+	return "1+1"
 }
 
 // Rules for edge dangles:
@@ -2759,10 +2778,12 @@ func (l *argoListener) forwardCfgPass() {
 
 
 				/// the post statement might have write variables
-				stmtNode := postCfg.subStmt
-				// add the post condition variable node 
-				for _, varNode := range(stmtNode.writeVars) {
-					varNode.cfgNodes = append(varNode.cfgNodes,postCfg) 
+				if postCfg.subStmt != nil { 
+					stmtNode := postCfg.subStmt
+					// add the post condition variable node 
+					for _, varNode := range(stmtNode.writeVars) {
+						varNode.cfgNodes = append(varNode.cfgNodes,postCfg) 
+					}
 				}
 				
 			} else {
@@ -3583,7 +3604,6 @@ func parseArgo(fname *string) *argoListener {
 	listener.ParseNode2ID = make(map[interface{}]int)
 
 	listener.nextVarID = 0
-	listener.varNode2ID = make(map[interface{}]int)
 
 	listener.nextStatementID = 0
 	listener.nextCfgID = 0

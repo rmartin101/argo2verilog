@@ -9,7 +9,7 @@ func main() {
 	var i,j,k,z int16 ; 
 
 	i = 1 ;
-	j = 2 ; 
+	j = 3210+0; 
 	k = 3 ;
 	
 	// simple if statement 
@@ -17,6 +17,7 @@ func main() {
 		fmt.Printf("I is less than J \n") ; 
 	} ;
 
+	fmt.Printf("I j k are %d %d %d \n", i,j,k ) ;
 	
 	// if with an else 
 	if  (k >= (i + 3)) {
@@ -28,16 +29,17 @@ func main() {
 	} ;
 
 	// highly chained if-elses
-	z = i+j+k ;
-	if   ( (j+k) < z )  {
+	z = i+j+k+20 ;
+	if   ( (j+k) > z )  {
 		z = 0;
 		fmt.Printf(" Z is %d  \n", z) ; 
-	} else if (( z * z) > 3) {
+	} else if (( z * z) > 3000) {
 		fmt.Printf("Z*Z is %d  \n", z*z) ;
 	} else {
 		fmt.Printf("End of the chained if \n") ;
 	} ;
 
 	k = i+j;
+	fmt.Printf("K is %d \n",k) ;
 } ;
 
