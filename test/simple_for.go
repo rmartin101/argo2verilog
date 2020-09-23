@@ -20,7 +20,7 @@ func main() {
 
 	fmt.Printf("before loop,i is %d j is %d \n",i,j) ;
 	// simple for statement 
-	for i = 0; i < j ; i = i + 1  {
+	for i := 0; i < j ; i = i + 1  {
 		for j = 0 ; j < 4; j = j + 1 {
 			fmt.Printf("inner loop, i is %d and j is %d\n",i,j) ;
 		};

@@ -196,7 +196,7 @@ type StatementNode struct {
 	sourceRow      int        // row in the source code
 	sourceCol      int        // column in the source code
 	funcName       string      // which function is this statement is defined in
-	vScope   *VarScope 
+	vScope   *VarScope         // list of variables in the scope of this statement 
 	readVars       []*VariableNode  // variables read in this statement
 	writeVars      []*VariableNode  // variables written to in this statement
 	predecessors   []*StatementNode // list of predicessors
@@ -710,7 +710,220 @@ func (l *argoListener) getFuncNodeByNames(packageName,funcName string) *Function
 	
 	return nil
 }
+
+// given a parse node, compute the variables for that node 
+func (l *argoListener) getParseVariables( node *ParseNode) []*VariableNode {
+
+	var returnVarList []*VariableNode // list of vars to return 
+	var funcDecl *ParseNode
+	var identifierList,identifierR_type *ParseNode
+	var funcName *ParseNode  // AST node of the function and function name
+	var identChild *ParseNode // AST node for an identifier for the inferred type 
+	// the three type of declarations are: varDecl (var keyword), parameterDecls (in a function signature), and shortVarDecls (:=)
+
+	var varNameList []string
+	var varNode     *VariableNode 
+	var varTypeStr string  // the type pf the var 
+	var arrayTypeNode,channelTypeNode,mapTypeNode *ParseNode // if the variables are this class
+	var numBits int        // number of bits in the type
+	var depth int          // channel depth (size of the buffer) 
+	var dimensions [] int  // slice which holds array dimensions 
 	
+	
+	funcDecl = nil
+	funcName = nil
+	identifierList = nil
+	varTypeStr = ""
+	numBits = NOTSPECIFIED
+	dimensions = nil
+	depth = 1
+	
+	varNameList = make([] string, 1)     // list of names of the variables 
+	arrayTypeNode = nil
+	channelTypeNode = nil
+
+	returnVarList = make([]*VariableNode,0)
+	
+	if (node.ruleType == "varDecl") || (node.ruleType == "parameterDecl") || (node.ruleType == "shortVarDecl") {
+
+		
+		funcDecl = node.walkUpToRule("functionDecl")
+		if (len(funcDecl.children) < 2) {  // need assertions here 
+			fmt.Printf("Error at %s: no function name",_file_line_())
+		}
+		funcName = funcDecl.children[1]
+		// now get the name and type of the actual declaration.
+		// getting both the name and type depends on the kind of declaration it is 
+		if ( (node.ruleType == "varDecl") || (node.ruleType== "parameterDecl") || (node.ruleType == "shortVarDecl"))  {
+
+			// we dont know what the types are yet for this declaraion
+			varNameList = nil
+			arrayTypeNode = nil
+			channelTypeNode = nil
+				
+			// find the list of identifiers as strings for these rules
+			identifierList = node.walkDownToRule("identifierList")
+
+
+			// if the identifierList is nil and the rule is a parameterdecl
+			// these are the functions return parameters
+			// We create special hidden vars for the return values in
+			// the function parsing as the return variables 
+			// are not named variables with AST nodes 
+			if (identifierList == nil) {
+				if (node.ruleType == "parameterDecl") {
+					//continue ParseNodeLoop ;
+					return returnVarList 
+				}
+				fmt.Printf("Error at %s: no identifier list",_file_line_())
+				return returnVarList
+			}
+
+			// get the type for this Decl rule
+			identifierR_type = node.walkDownToRule("r_type")
+			
+			varTypeStr = ""; numBits = -1
+
+			// if we assign a constant to a variable, we need to infer the
+			// type of the constant which becomes the type of the variable 
+			// TODO: need a better function to infer the type here
+			if identifierR_type == nil {
+				identifierR_type = node.walkDownToRule("basicLit")
+				if identifierR_type != nil {
+					identChild  =  identifierR_type.children[0]
+					numStr := identChild.ruleType
+						
+					_, err := strconv.ParseInt(numStr,0,64)
+					if err == nil {
+						varTypeStr = "int"
+						if (len(numStr) >= 2) {
+							if ( (numStr[0] == byte("0"[0])) &&
+								((numStr[1] == byte("x"[0])) || (numStr[1] == byte("X"[0])))) {
+								numBits = 4*( len(numStr)-2) // make size = to number of digits 
+							} else { 
+								numBits = 32  // default size is 32 bit ints 
+							}
+						} else {
+							numBits = 32  // default size is 32 bit ints 
+						}
+					} else {
+						_, err := strconv.ParseFloat(identChild.ruleType,32)
+						if err == nil {
+							varTypeStr = "float" 
+						} else {
+							fmt.Printf("primitive type failed for node %d\n",node.id )
+						}
+					}
+					
+				} else {  // if there is no name, this probably a return parameterDecl. 
+					// these dont have a name, so we need to make one up 
+				}
+				
+			} else { 
+				varTypeStr,numBits = identifierR_type.getPrimitiveType()
+			}
+
+			arrayTypeNode = node.walkDownToRule("arrayType")
+			
+			// check if these are arrays or channels 
+			if ( arrayTypeNode != nil) {
+				dimensions = arrayTypeNode.getArrayDimensions()
+			} else {
+				channelTypeNode = node.walkDownToRule("channelType")
+
+
+				if ( channelTypeNode!= nil) {
+					// channels in parameters do not have a depth
+					// set to -2 as a flag for a channel in a
+					// parameter 
+					depth = -2
+					if ((node.ruleType == "varDecl") || (node.ruleType == "shortVarDecl")) {
+						// any literal as a child is used as the depth. This might not always work. 
+						depth = node.getChannelDepth()
+						// default to 1 if no depth is found 
+						if (depth == NOTSPECIFIED) {
+							depth = 1
+						}
+					}else {
+						depth = PARAMETER
+					}
+				} else {
+					mapTypeNode = node.walkDownToRule("mapType")
+					if ( mapTypeNode!= nil) {
+						// a map 
+					}
+				}
+			}
+				
+			// create list of variable for all the children of this Decl rule 
+			for _, child := range identifierList.children {
+				if (child.ruleType != ","){
+					varNameList = append(varNameList,child.ruleType)
+					
+				}
+				
+			}
+
+			for _, varName := range varNameList {
+				// fmt.Printf("found variable in func %s name: %s type: %s:%d",funcName.sourceCode,varName,varTypeStr,numBits)
+				varNode = new(VariableNode)
+				varNode.id = l.nextVarID ; l.nextVarID++
+				varNode.parseDef = node
+				varNode.parseDefNum = node.id
+				varNode.astClass = node.ruleType
+				varNode.funcName = funcName.sourceCode
+				varNode.sourceName  = varName
+				varNode.sourceRow = node.sourceLineStart
+				varNode.sourceCol = node.sourceColStart
+				varNode.canName = varName + "_" + funcName.sourceCode + "_" + strconv.Itoa(node.sourceLineStart) + "_" + strconv.Itoa(node.sourceColStart)
+				varNode.primType = varTypeStr
+				varNode.numBits = numBits
+				varNode.visited = false
+				varNode.isParameter = false
+				varNode.isResult = false 
+				varNode.goLangType = "numeric"  // default 
+				if (arrayTypeNode != nil) {
+					varNode.dimensions = dimensions
+					varNode.numDim = len(dimensions) 
+					varNode.goLangType = "array"
+					
+				} 
+				if (channelTypeNode != nil) {
+					varNode.goLangType = "channel"
+					varNode.depth = depth 
+				}
+				if (mapTypeNode != nil) {
+					varNode.goLangType = "map"
+
+				}
+				
+				if (node.ruleType== "parameterDecl") {
+					varNode.isParameter = true 
+				}
+					
+				// add this to a list of the variable nodes
+				// for this program 
+				//l.addVarNode(varNode)
+				returnVarList = append(returnVarList,varNode)
+				
+			}
+				
+			// Given the function name, type and variable names in the list
+			// create a new variable node 
+			
+		} else if (node.ruleType == "shorVarDecl") {
+			// short variable declaration 
+		} else {
+				fmt.Printf("Major Error\n ")
+		}
+	} else {
+		// wrong node type 
+	}
+
+	return returnVarList 
+}
+
+
 func (l *argoListener) getAllVariables() int {
 	var funcDecl *ParseNode
 	var identifierList,identifierR_type *ParseNode
@@ -1349,7 +1562,9 @@ func (l *argoListener) parseForStmt(forNode *ParseNode,funcDecl *ParseNode,forSt
 					seenSimple++
 				}
 
-				// the first simple statement is the initialization statement 
+				// the first simple statement is the initialization statement
+				// add check here if there is a short var decl; create a new
+				// var context for this statement 
 				if (seenSimple == 0 ) && (childNode.ruleType == "simpleStmt")  {
 					initStmt = childStmt
 
@@ -1592,7 +1807,7 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 	var predecessorStmt *StatementNode 
 	var stateNode *StatementNode
 	var slist []*StatementNode
-	
+	var varDeclList []*VariableNode // a list of variables for a declaration node 
 	//var numChildren int
 	
 	if (len(funcDecl.children) < 2) {  // need assertions here 
@@ -1635,7 +1850,16 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 					stmtTypeNode = subNode
 				}
 			} else {
+				if (subNode.ruleType == "declaration") {
+					varDeclList = l.getParseVariables(subNode.children[0])
+					fmt.Printf("got a declaration %d %d \n",subNode.id,len(varDeclList))
+					
+				} else if (subNode.ruleType == "shortVarDecl")  {
+					varDeclList = l.getParseVariables(subNode)
+				}
+
 				continue;
+
 			}
 
 		} else {
@@ -1709,7 +1933,9 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		
 		// Get sub statement lists for this node
 		switch stateNode.stmtType { 
-		case "declaration": 
+		case "declaration":
+			// add the variable to the scope context
+			fmt.Printf("got declaration %d \n",stateNode.id)
 		case "labeledStmt":
 			
 		case "goStmt":
@@ -1748,10 +1974,11 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		case "incDecStmt":
 		case "assignment":
 		case "shortVarDecl":
+			fmt.Printf("got short var decl %d \n",stateNode.id)
 		case "emptyStmt":
 						
 		default:
-			fmt.Printf("Major error: no such statement type\n")
+			fmt.Printf("Error! at %s no such statement type: %s\n",_file_line_(),stateNode.stmtType)
 		}
 
 		predecessorStmt = eosStmt
@@ -2057,6 +2284,7 @@ func (l *argoListener) getStatementGraph() int {
 	startNode.sourceCol =  0
 	startNode.parent = nil
 	startNode.parentID = -1
+	startNode.vScope = nil
 	l.statementGraph = append(l.statementGraph,startNode)
 	
 	// for each function in the source file, parse the linear list of statements 
@@ -2107,6 +2335,8 @@ func (l *argoListener) getStatementGraph() int {
 				entryNode.sourceCol =  funcDecl.sourceColStart
 				entryNode.parent = nil
 				entryNode.parentID = -1
+				entryNode.vScope = new(VarScope)
+				entryNode.vScope.varNameMap = make(map[string] *VariableNode)				
 				// add this to the global list of statements 
 				l.statementGraph = append(l.statementGraph,entryNode)
 				
