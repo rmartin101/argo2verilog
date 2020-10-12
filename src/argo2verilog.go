@@ -170,7 +170,7 @@ type VariableNode struct {
 type VarScope struct {
 	id int ;   // id of this scope 
 	varNameMap map[string]*VariableNode  // map of source code names to  cannonical names
-	statements *[]StatementNode         // is
+	statements []*StatementNode         // list of statements in this scope 
 	cfgNodes  []*CfgNode  // control flow nodes which are in this scope 	
 	visited        bool    // flag if visited 	
 }
@@ -1291,11 +1291,15 @@ func (l *argoListener) parseIfStmt(ifNode *ParseNode,funcDecl *ParseNode,ifStmt 
 				childStmt.sourceRow =  childNode.sourceLineStart 
 				childStmt.sourceCol =  childNode.sourceColStart
 				childStmt.parent = ifStmt
-				childStmt.parentID = ifStmt.id 
-				// add this to the global list of statements 
-
-				l.statementGraph = append(l.statementGraph,childStmt)
+				childStmt.parentID = ifStmt.id
 				
+				// set the variable scope to be the same as the if statement's scope 
+				childStmt.vScope = ifStmt.vScope 
+				childStmt.vScope.statements = append(childStmt.vScope.statements,childStmt)
+				
+				// add this to the global list of statements 
+				l.statementGraph = append(l.statementGraph,childStmt)
+
 			}
 
 			// set the node type 
@@ -1492,7 +1496,11 @@ func (l *argoListener) parseForStmt(forNode *ParseNode,funcDecl *ParseNode,forSt
 			childStmt.sourceCol =  childNode.sourceColStart
 			childStmt.parent = forStmt 
 			childStmt.parentID = forStmt.id
-			
+
+			// set the variable scope to be the same as the for statement's scope 
+			childStmt.vScope = forStmt.vScope 
+			childStmt.vScope.statements = append(childStmt.vScope.statements,childStmt)
+
 			l.statementGraph = append(l.statementGraph,childStmt)
 
 			conditionStmt = childStmt
@@ -1537,6 +1545,11 @@ func (l *argoListener) parseForStmt(forNode *ParseNode,funcDecl *ParseNode,forSt
 					childStmt.sourceCol =  childNode.sourceColStart
 					childStmt.parent = forStmt 
 					childStmt.parentID = forStmt.id
+
+					// set the variable scope to be the same as the if statement's scope 
+					childStmt.vScope = forStmt.vScope 
+					childStmt.vScope.statements = append(childStmt.vScope.statements,childStmt)
+					
 					// add this to the global list of statements 
 					l.statementGraph = append(l.statementGraph,childStmt)
 					
@@ -1856,6 +1869,7 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 					
 				} else if (subNode.ruleType == "shortVarDecl")  {
 					varDeclList = l.getParseVariables(subNode)
+					fmt.Printf("got other declaration %d %d \n",subNode.id,len(varDeclList))
 				}
 
 				continue;
@@ -1930,6 +1944,47 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		stateNode.addStmtSuccessor(eosStmt)
 		stateNode.addStmtPredecessor(predecessorStmt)
 		eosStmt.addStmtPredecessor(stateNode)
+
+		
+		// this added to the scope of the statement
+		// inheret the variable scope from either the predecessor or the
+		// parent statement 
+		if (predecessorStmt != nil) {
+			if (predecessorStmt.vScope != nil) {
+				stateNode.vScope = predecessorStmt.vScope
+				eosStmt.vScope = predecessorStmt.vScope
+			} else {
+				if (parentStmt.vScope != nil ) {
+					stateNode.vScope = parentStmt.vScope
+					eosStmt.vScope = parentStmt.vScope
+				} else {
+					fmt.Printf("Error at %s no variable scope stmt id %d\n",_file_line_(),stateNode.id)
+				}
+			}
+		} else {
+			if (parentStmt.vScope != nil ) {
+				stateNode.vScope = parentStmt.vScope
+				eosStmt.vScope = parentStmt.vScope
+			} else {
+				fmt.Printf("Error at %s no variable scope stmt id %d\n",_file_line_(),stateNode.id)
+			}				
+		}
+
+
+		stateNode.vScope = parentStmt.vScope
+		stateNode.vScope.statements = append(stateNode.vScope.statements,stateNode)
+		
+		eosStmt.vScope = parentStmt.vScope
+		eosStmt.vScope.statements = append(eosStmt.vScope.statements,eosStmt)
+		
+
+		// add variables to the scope for this statement
+		for _, vNode := range(varDeclList) {
+			fmt.Printf("adding declaration %s \n",vNode.sourceName)			
+			stateNode.vScope.varNameMap[vNode.sourceName] = vNode
+		}
+	
+		
 		
 		// Get sub statement lists for this node
 		switch stateNode.stmtType { 
@@ -1946,7 +2001,9 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		case "fallthroughStmt":
 		case "ifStmt":
 			// get the eos of the next node
-			// this will become the successor in the statement graph 
+			// this will become the successor in the statement graph
+			// create a new variable scope for this statement
+			
 			slist = l.parseIfStmt(subNode,funcDecl,stateNode,eosStmt)
 			slistLen := len(slist)
 			if (slistLen > 0) {
@@ -1961,6 +2018,7 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		case "switchStmt":
 		case "selectStmt":
 		case "forStmt":
+			// create a new variable scope for this statement
 			slist = l.parseForStmt(subNode,funcDecl,stateNode,eosStmt)
 			slistLen := len(slist)			
 			if (slistLen > 0) {
@@ -2336,13 +2394,15 @@ func (l *argoListener) getStatementGraph() int {
 				entryNode.parent = nil
 				entryNode.parentID = -1
 				entryNode.vScope = new(VarScope)
-				entryNode.vScope.varNameMap = make(map[string] *VariableNode)				
+				entryNode.vScope.varNameMap = make(map[string] *VariableNode)
+				entryNode.vScope.id = entryNode.id
+				entryNode.vScope.statements = append(entryNode.vScope.statements,entryNode)
+				
 				// add this to the global list of statements 
 				l.statementGraph = append(l.statementGraph,entryNode)
 				
 				statements = make([]*StatementNode,1)
 				statements = l.getListOfStatements(stmtListNode,entryNode,funcDecl)
-
 
 				// if this is the main function, make the predicessor the startNode and
 				// the successor of the start node the main() definition
@@ -2368,7 +2428,10 @@ func (l *argoListener) getStatementGraph() int {
 				exitNode.parent = entryNode
 				exitNode.parentID = entryNode.id
 				exitNode.child = nil
-				exitNode.childID = -1				
+				exitNode.childID = -1
+
+				exitNode.vScope = entryNode.vScope
+				exitNode.vScope.statements = append(exitNode.vScope.statements,exitNode)
 				// add this to the global list of statements 
 				l.statementGraph = append(l.statementGraph,exitNode)
 
