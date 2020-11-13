@@ -1977,11 +1977,12 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		eosStmt.vScope = parentStmt.vScope
 		eosStmt.vScope.statements = append(eosStmt.vScope.statements,eosStmt)
 		
-
 		// add variables to the scope for this statement
 		for _, vNode := range(varDeclList) {
-			fmt.Printf("adding declaration %s \n",vNode.sourceName)			
+			fmt.Printf("adding declaration var %s node id %d\n",vNode.sourceName,stateNode.id)			
 			stateNode.vScope.varNameMap[vNode.sourceName] = vNode
+			// once the node is added, clear the list from the loop
+			varDeclList = nil
 		}
 	
 		
