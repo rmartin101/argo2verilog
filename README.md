@@ -31,13 +31,33 @@ Golang is the Go compiler and run-time. [Antlr4](https://www.antlr.org/) is syst
 
 ## Install the Antr4 lexer and parser 
 
-## Install the iverlog simulator 
+
+Install the Go runtime for the Antlr4 installation. The instructions are [here.](https://github.com/antlr/antlr4/blob/master/doc/go-target.md) 
 
 ## Install the Go compiler
 
+For Debian/Ubuntu distributions: sudo apt install golang 
+
+For Fedora based distributions: sudo dnf install -y golang
+
+Mac ports: 
+
+
+## Install the iverlog simulator 
+
+For Debian/Ubuntu distributions: sudo apt install iverilog 
+
+For Fedora based distributions: sudo dnf install iverilog 
+
+Mac ports: 
+
 ## Clone the Argo2verilog Repository 
 
+git clone 
+
 ## Make and run the examples 
+
+cd argo2verilog/src ; make ; make examples 
 
 ### channel_simple.go 
 
