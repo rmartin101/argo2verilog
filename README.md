@@ -40,7 +40,7 @@ For Debian/Ubuntu distributions: sudo apt install golang
 
 For Fedora based distributions: sudo dnf install -y golang
 
-Mac ports: 
+Mac: Use the official [golang site](https://golang.org/doc/install) 
 
 
 ## Install the iverlog simulator 
@@ -49,11 +49,11 @@ For Debian/Ubuntu distributions: sudo apt install iverilog
 
 For Fedora based distributions: sudo dnf install iverilog 
 
-Mac ports: 
+Mac ports: sudo port install iverilog
 
-## Clone the Argo2verilog Repository 
+## Clone the argo2verilog Repository 
 
-git clone 
+git clone https://github.com/rmartin101/argo2verilog.git
 
 ## Make and run the examples 
 
