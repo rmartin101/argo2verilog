@@ -56,11 +56,8 @@ Mac ports: `sudo port install iverilog`
 
 ## Make and run the examples 
 
-`cd argo2verilog/src ; make ; make examples `
+`cd argo2verilog/src ; make install check `
 
-### channel_simple.go 
-
-### forloops.go 
 
 
 
