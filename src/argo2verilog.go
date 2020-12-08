@@ -1865,11 +1865,11 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 			} else {
 				if (subNode.ruleType == "declaration") {
 					varDeclList = l.getParseVariables(subNode.children[0])
-					fmt.Printf("got a declaration %d %d \n",subNode.id,len(varDeclList))
+					// fmt.Printf("got a declaration %d %d \n",subNode.id,len(varDeclList))
 					
 				} else if (subNode.ruleType == "shortVarDecl")  {
 					varDeclList = l.getParseVariables(subNode)
-					fmt.Printf("got other declaration %d %d \n",subNode.id,len(varDeclList))
+					// fmt.Printf("got other declaration %d %d \n",subNode.id,len(varDeclList))
 				}
 
 				continue;
@@ -1979,7 +1979,7 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		
 		// add variables to the scope for this statement
 		for _, vNode := range(varDeclList) {
-			fmt.Printf("adding declaration var %s node id %d\n",vNode.sourceName,stateNode.id)			
+			// fmt.Printf("adding declaration var %s node id %d\n",vNode.sourceName,stateNode.id)			
 			stateNode.vScope.varNameMap[vNode.sourceName] = vNode
 			// once the node is added, clear the list from the loop
 			varDeclList = nil
@@ -2033,7 +2033,7 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		case "incDecStmt":
 		case "assignment":
 		case "shortVarDecl":
-			fmt.Printf("got short var decl %d \n",stateNode.id)
+			//fmt.Printf("got short var decl %d \n",stateNode.id)
 		case "emptyStmt":
 						
 		default:
