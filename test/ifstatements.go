@@ -3,7 +3,7 @@
 package main ;
 
 import ( "fmt" ) ;
-
+import ( "net" ) ;
 
 func blammo(i,j int) int {
 	if(i <= j) {
@@ -17,12 +17,23 @@ func blargo(i int) (int,int) {
 } ;
 
 
+type UDPpacket struct {
+	id int; 
+	protocol int;       
+};
+
+
 func main() {
 	var i,j,k int ; 
-
+	
 	i = 1 ;
 	j = 2 ; 
 	k = 3 ;
+
+	addr := net.UDPAddr{net.ParseIP("127.0.0.1"), 3003,"", };
+
+	addr2 := net.UDPAddr{net.ParseIP("127.0.0.1"), 3003, "", };
+
 	
 	// simple if statement 
 	if  (i < j) {

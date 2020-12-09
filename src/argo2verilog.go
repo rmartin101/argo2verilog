@@ -4024,7 +4024,7 @@ func main() {
 
 	
 	if (*parseCheck_p) {
-		fmt.Printf("parse check completed \n")
+		// fmt.Printf("parse check completed \n")
 	} 
 
 
