@@ -3,7 +3,6 @@
 package main ;
 
 import ( "fmt" ) ;
-import ( "net" ) ;
 
 func blammo(i,j int) int {
 	if(i <= j) {
@@ -12,17 +11,6 @@ func blammo(i,j int) int {
 	return i+j ;
 } ;
 
-func blargo(i int) (int,int) {
-	return i+i, i*i ;
-} ;
-
-
-type UDPpacket struct {
-	id int; 
-	protocol int;       
-};
-
-
 func main() {
 	var i,j,k int ; 
 	
@@ -30,11 +18,9 @@ func main() {
 	j = 2 ; 
 	k = 3 ;
 
-	addr := net.UDPAddr{net.ParseIP("127.0.0.1"), 3003,"", };
+	//addr := net.UDPAddr{net.ParseIP("127.0.0.1"), 3003,"", };
+	//fmt.Printf("the type of the addr variable is %T \n",addr);
 
-	addr2 := net.UDPAddr{net.ParseIP("127.0.0.1"), 3003, "", };
-
-	
 	// simple if statement 
 	if  (i < j) {
 		fmt.Printf("I is less than J \n") ; 

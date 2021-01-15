@@ -168,7 +168,7 @@ type VariableNode struct {
 
 // a scope is a set of local variable names to global name mappings
 type VarScope struct {
-	id int ;   // id of this scope 
+	id int ;   // id of this scope
 	varNameMap map[string]*VariableNode  // map of source code names to  cannonical names
 	statements []*StatementNode         // list of statements in this scope 
 	cfgNodes  []*CfgNode  // control flow nodes which are in this scope 	
@@ -196,7 +196,7 @@ type StatementNode struct {
 	sourceRow      int        // row in the source code
 	sourceCol      int        // column in the source code
 	funcName       string      // which function is this statement is defined in
-	vScope   *VarScope         // list of variables in the scope of this statement 
+	vScope  *VarScope         // list of variables in the scope of this statement 
 	readVars       []*VariableNode  // variables read in this statement
 	writeVars      []*VariableNode  // variables written to in this statement
 	predecessors   []*StatementNode // list of predicessors
@@ -1851,9 +1851,11 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		}
 		childNode.visited = true
 
+		
 		// check the type if we want to continue 
 		if (len(childNode.children) > 0) {
 			subNode = childNode.children[0] // subnode should be a statement
+			
 			// skip decls 
 			if (subNode.ruleType != "declaration" )&& (subNode.ruleType != ";") && (len(subNode.children) >0) {
 				// simple statements have to go one level down to get the actual type 
@@ -1865,11 +1867,11 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 			} else {
 				if (subNode.ruleType == "declaration") {
 					varDeclList = l.getParseVariables(subNode.children[0])
-					// fmt.Printf("got a declaration %d %d \n",subNode.id,len(varDeclList))
+					fmt.Printf("got a declaration %d %d \n",subNode.id,len(varDeclList))
 					
 				} else if (subNode.ruleType == "shortVarDecl")  {
 					varDeclList = l.getParseVariables(subNode)
-					// fmt.Printf("got other declaration %d %d \n",subNode.id,len(varDeclList))
+					fmt.Printf("got other declaration %d %d \n",subNode.id,len(varDeclList))
 				}
 
 				continue;
@@ -1880,6 +1882,7 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 			continue;
 		}
 
+		// create the new statement node 
 		stateNode = new(StatementNode)
 		stateNode.id = l.nextStatementID; l.nextStatementID++
 		stateNode.parseDef = childNode
@@ -1947,8 +1950,8 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 
 		
 		// this added to the scope of the statement
-		// inheret the variable scope from either the predecessor or the
-		// parent statement 
+		// inheret the variable scope from either the predecessor or the	
+	// parent statement 
 		if (predecessorStmt != nil) {
 			if (predecessorStmt.vScope != nil) {
 				stateNode.vScope = predecessorStmt.vScope
@@ -1978,14 +1981,19 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		eosStmt.vScope.statements = append(eosStmt.vScope.statements,eosStmt)
 		
 		// add variables to the scope for this statement
+		// only adds statements with a var keyword in front. 
 		for _, vNode := range(varDeclList) {
-			// fmt.Printf("adding declaration var %s node id %d\n",vNode.sourceName,stateNode.id)			
+			fmt.Printf("stmt: %d adding declaration var %s \n",stateNode.id,vNode.sourceName)
+			// find the variable name in the global list of vatiables.
 			stateNode.vScope.varNameMap[vNode.sourceName] = vNode
 			// once the node is added, clear the list from the loop
 			varDeclList = nil
 		}
 	
 		
+
+		fmt.Printf("getlistofstatements stateNode: got a parseID %d type %s \n",stateNode.id,stateNode.stmtType)
+
 		
 		// Get sub statement lists for this node
 		switch stateNode.stmtType { 
@@ -2033,7 +2041,7 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		case "incDecStmt":
 		case "assignment":
 		case "shortVarDecl":
-			//fmt.Printf("got short var decl %d \n",stateNode.id)
+			fmt.Printf("got short var decl %d \n",stateNode.id)
 		case "emptyStmt":
 						
 		default:
@@ -2517,6 +2525,14 @@ func (l *argoListener) getStatementGraph() int {
 	return 1
 } // end getStatementGraph 
 
+// walk the statement graph and find short var declarations
+// change the variable scope nodes in the graph with the short var decls 
+func (l *argoListener) fixVariableScopes() int {
+
+	
+	return 1 
+}
+	
 /* ***************  Control Flow Graph and DataFlow Section   ********************** */
 
 func (l *argoListener) newCFGnode(stmt *StatementNode, subID int) (int,*CfgNode) {
@@ -3450,6 +3466,28 @@ func (l *argoListener) printFuncNodes() {
 	}
 }
 
+func (l *argoListener) printVarScopes() {
+	var scope *VarScope
+	// sort statements by id number 
+	sort.Slice(l.statementGraph, func(i, j int) bool {
+		return l.statementGraph[i].id < l.statementGraph[j].id
+	})
+
+
+	for i, node := range l.statementGraph {
+		fmt.Printf("Stmt: %d: ID:%d at (%d,%d) type:%s parent: %d child: %d scopeVars: ", i,node.id, node.sourceRow, node.sourceCol, node.stmtType,node.parentID,node.childID)
+
+		if (node.vScope != nil) {
+			scope = node.vScope
+			for vName := range scope.varNameMap {
+				varNode := scope.varNameMap[vName]
+				fmt.Printf("%s:%s ",vName,varNode.canName)
+			}
+			fmt.Printf("\n")			
+		}
+	}
+}
+
 // print the statement graph
 func (l *argoListener) printStatementGraph(format string) {
 	var j int
@@ -3579,7 +3617,7 @@ func (l *argoListener) printStatementGraph(format string) {
 			if (format == "text") {			
 				fmt.Printf(" writeVars: ")
 				for _, varNode := range( node.writeVars) {
-					fmt.Printf("%s  ", varNode.sourceName)
+					fmt.Printf("%s_%d  ", varNode.sourceName,varNode.id)
 				}
 			}
 		}
@@ -3666,6 +3704,7 @@ func (l *argoListener) printStatementGraph(format string) {
 		fmt.Printf("} \n")
 	}
 }
+
 
 /* ******************  Parse Tree Contruction Section   ************************* */
 
@@ -3938,7 +3977,7 @@ var max_parse_errors int
 func main() {
 	var parsedProgram *argoListener 
 	var inputFileName_p,outputFileName_p *string
-	var printASTasGraphViz_p,printASTasText_p,printVarNames_p,printFuncNames_p,printStmtGraph_p,parseCheck_p *bool
+	var printASTasGraphViz_p,printASTasText_p,printVarNames_p,printFuncNames_p,printStmtGraph_p,parseCheck_p,printScopes_p *bool
 	var printStmtGraphGV_p *bool
 	var printCntlGraph_p *bool
 	var debugFlags   uint64
@@ -3956,6 +3995,7 @@ func main() {
 	printStmtGraphGV_p = flag.Bool("stmtgv",false,"print the statement graph in graphviz format")
 	printFuncNames_p = flag.Bool("func",false,"print all functions")
 	printCntlGraph_p = flag.Bool("cntl",false,"print the control-flow graph")
+	printScopes_p = flag.Bool("scope",false,"print variable scopes")
 	parseCheck_p     = flag.Bool("check",false,"check for correct syntax ")
 
 	debugFlags_p     = flag.String("dbg","","debug flags 1=verilog control ")
@@ -3988,7 +4028,9 @@ func main() {
 	parsedProgram.getAllVariables()  // must call get all variables first 
 	parsedProgram.getAllFunctions()  // then get all functions 
 	parsedProgram.getStatementGraph()  // now make the statementgraph
+	parsedProgram.fixVariableScopes() // fix the scoping rules to allow for short var decls 
 	parsedProgram.getControlFlowGraph()  // now make the statementgraph
+
 	
 	if (*printASTasGraphViz_p) {
 		parsedProgram.printParseTreeNodes("dotShort")
@@ -4022,6 +4064,10 @@ func main() {
 			
 	}
 
+	if (*printScopes_p) {
+		parsedProgram.printVarScopes()
+		
+	}
 	
 	if (*parseCheck_p) {
 		// fmt.Printf("parse check completed \n")
