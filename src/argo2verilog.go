@@ -1148,7 +1148,6 @@ func (l *argoListener) getAllVariables() int {
 
 func (l *argoListener) flattenVarsInExpression() string {
 
-
 	return "1+1"
 }
 
@@ -1990,11 +1989,6 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 			varDeclList = nil
 		}
 	
-		
-
-		fmt.Printf("getlistofstatements stateNode: got a parseID %d type %s \n",stateNode.id,stateNode.stmtType)
-
-		
 		// Get sub statement lists for this node
 		switch stateNode.stmtType { 
 		case "declaration":
@@ -2406,6 +2400,17 @@ func (l *argoListener) getStatementGraph() int {
 				entryNode.vScope.varNameMap = make(map[string] *VariableNode)
 				entryNode.vScope.id = entryNode.id
 				entryNode.vScope.statements = append(entryNode.vScope.statements,entryNode)
+				// add the variables in the function declaration to the scope
+				// if the function and parameter fields match, add to the
+				// scope 
+				for _, node := range l.varNodeList {
+					if (node.funcName == funcStr) {
+						if (node.isParameter) {
+							entryNode.vScope.varNameMap[node.sourceName]=node
+							entryNode.vScope.statements = append(entryNode.vScope.statements,entryNode)
+						}
+					}
+				}
 				
 				// add this to the global list of statements 
 				l.statementGraph = append(l.statementGraph,entryNode)
@@ -2525,11 +2530,18 @@ func (l *argoListener) getStatementGraph() int {
 	return 1
 } // end getStatementGraph 
 
-// walk the statement graph and find short var declarations
-// change the variable scope nodes in the graph with the short var decls 
+// do a recursive traversal of the statement graph and find short var declarations
+// change the variable scope nodes in the graph with the short var decls
+func (l *argoListener) fixVarScopesRoot(stmt *StatementNode)  {
+	
+}
+
+// this walks each function 
 func (l *argoListener) fixVariableScopes() int {
 
-	
+	// if this is a short var declaration, change the scope
+	// traverse the rest of the graph 
+
 	return 1 
 }
 	
