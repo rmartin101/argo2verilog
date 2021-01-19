@@ -2530,18 +2530,73 @@ func (l *argoListener) getStatementGraph() int {
 	return 1
 } // end getStatementGraph 
 
+
+func (l *argoListener) generateNewScope(stmt *StatementNode) {
+	var pNode *ParseNode
+
+	pNode = stmt.parseDef
+
+	// match the variable to this parse node 
+	for _, vNode := range l.varNodeList { 
+		if (vNode.parseDef == pNode) {
+			fmt.Printf("matched short var decl stmt %d\n",stmt.id)
+			stmt.vScope.varNameMap[vNode.sourceName] = vNode
+
+		}
+	}
+	
+	// get the name of the var
+
+}
+
 // do a recursive traversal of the statement graph and find short var declarations
 // change the variable scope nodes in the graph with the short var decls
 func (l *argoListener) fixVarScopesRoot(stmt *StatementNode)  {
+	var shortDecl *StatementNode
+	shortDecl = nil
 	
+	if (stmt == nil) {
+		return 
+	}
+	// find and replace any short var declarations in the scope rules for the statements
+	if (stmt.ifSimple != nil) {
+		if (stmt.ifSimple.stmtType == "shortVarDecl") {
+			shortDecl = stmt.ifSimple
+			l.generateNewScope(shortDecl) 
+		}
+	} else if (stmt.forInit != nil) {
+		if (stmt.forInit.stmtType == "shortVarDecl") {
+			shortDecl = stmt.forInit
+			l.generateNewScope(shortDecl) 
+		}
+	}
+
+	// this is the recursive call 
+	if (stmt.child != nil) {
+		l.fixVarScopesRoot(stmt.child) 
+	}
+
+	for _,succ := range (stmt.successors) {
+		if (succ != nil) { 
+			l.fixVarScopesRoot(succ)
+		}
+	}
+
 }
 
-// this walks each function 
+// top-level function for fixing scope.
+// go linearly through the statementgraph, then recursively fix the scope
+// for each function 
 func (l *argoListener) fixVariableScopes() int {
 
 	// if this is a short var declaration, change the scope
 	// traverse the rest of the graph 
 
+	for _, node := range l.statementGraph {
+		if node.stmtType == "functionDecl" {
+			l.fixVarScopesRoot(node)
+		}
+	}
 	return 1 
 }
 	
