@@ -2560,7 +2560,11 @@ func (l *argoListener) fixVarScopesRoot(stmt *StatementNode)  {
 	if (stmt == nil) {
 		return 
 	}
-
+	if (stmt.visited == true) {
+		return
+	}
+	stmt.visited = true
+	
 	fmt.Printf("fixVarScopesRoot called stmt %d \n",stmt.id)
 
 	// find and replace any short var declarations in the scope rules for the statements
@@ -2597,6 +2601,9 @@ func (l *argoListener) fixVariableScopes() int {
 	// if this is a short var declaration, change the scope
 	// traverse the rest of the graph 
 
+	for _, node := range l.statementGraph {
+		node.visited = false; 
+	}
 	for _, node := range l.statementGraph {
 		if node.stmtType == "functionDecl" {
 			l.fixVarScopesRoot(node)
