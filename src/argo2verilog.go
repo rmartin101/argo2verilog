@@ -2534,11 +2534,13 @@ func (l *argoListener) getStatementGraph() int {
 func (l *argoListener) generateNewScope(stmt *StatementNode) {
 	var pNode *ParseNode
 
-	pNode = stmt.parseDef
-
+	pNode = stmt.parseSubDef
+	fmt.Printf("  Generate New Scope called stmt %d parse %d \n",stmt.id,pNode.id)
+	
 	// match the variable to this parse node 
-	for _, vNode := range l.varNodeList { 
-		if (vNode.parseDef == pNode) {
+	for _, vNode := range l.varNodeList {
+		fmt.Printf(" parsedef is %d \n",vNode.parseDef.id)
+		if (vNode.parseDef.id == pNode.id) {
 			fmt.Printf("matched short var decl stmt %d\n",stmt.id)
 			stmt.vScope.varNameMap[vNode.sourceName] = vNode
 
@@ -2554,10 +2556,13 @@ func (l *argoListener) generateNewScope(stmt *StatementNode) {
 func (l *argoListener) fixVarScopesRoot(stmt *StatementNode)  {
 	var shortDecl *StatementNode
 	shortDecl = nil
-	
+
 	if (stmt == nil) {
 		return 
 	}
+
+	fmt.Printf("fixVarScopesRoot called stmt %d \n",stmt.id)
+
 	// find and replace any short var declarations in the scope rules for the statements
 	if (stmt.ifSimple != nil) {
 		if (stmt.ifSimple.stmtType == "shortVarDecl") {
