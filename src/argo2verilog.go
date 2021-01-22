@@ -2553,8 +2553,10 @@ func (l *argoListener) generateNewScope(stmt *StatementNode) {
 
 // do a recursive traversal of the statement graph and find short var declarations
 // change the variable scope nodes in the graph with the short var decls
-func (l *argoListener) fixVarScopesRoot(stmt *StatementNode)  {
+func (l *argoListener) fixVarScopesRoot(stmt *StatementNode,pScope *VarScope)  {
 	var shortDecl *StatementNode
+	var newScope *VarScope
+	
 	shortDecl = nil
 
 	if (stmt == nil) {
@@ -2564,6 +2566,13 @@ func (l *argoListener) fixVarScopesRoot(stmt *StatementNode)  {
 		return
 	}
 	stmt.visited = true
+
+	// do a shallow copy of the parent scope into the current scope
+	if (stmt.vScope == nil) {
+		return
+	}
+
+	*stmt.vScope = *pScope
 	
 	fmt.Printf("fixVarScopesRoot called stmt %d \n",stmt.id)
 
@@ -2571,23 +2580,59 @@ func (l *argoListener) fixVarScopesRoot(stmt *StatementNode)  {
 	if (stmt.ifSimple != nil) {
 		if (stmt.ifSimple.stmtType == "shortVarDecl") {
 			shortDecl = stmt.ifSimple
-			l.generateNewScope(shortDecl) 
+			l.generateNewScope(shortDecl)
+			newScope = stmt.ifSimple.vScope;
+			if (stmt.ifTest != nil){
+				*stmt.ifTest.vScope = *newScope
+			}
+
+			// go down the taken branch 
+			if (stmt.ifTaken != nil){
+				*stmt.ifTaken.vScope = *newScope
+				l.fixVarScopesRoot(stmt.ifTaken,newScope)
+			}
+			
+			
+			if (stmt.ifElse != nil){
+				*stmt.ifElse.vScope = *newScope
+				l.fixVarScopesRoot(stmt.ifElse,newScope)
+			}
+
+			
+			
 		}
 	} else if (stmt.forInit != nil) {
 		if (stmt.forInit.stmtType == "shortVarDecl") {
 			shortDecl = stmt.forInit
-			l.generateNewScope(shortDecl) 
+			l.generateNewScope(shortDecl)
+			newScope = stmt.ifSimple.vScope;
+
+			if (stmt.forCond != nil){
+				*stmt.forCond.vScope = *newScope
+			}			
+
+			if (stmt.forPost != nil){
+				*stmt.forPost.vScope = *newScope
+			}
+
+			if (stmt.forBlock != nil){
+				*stmt.forBlock.vScope = *newScope
+				l.fixVarScopesRoot(stmt.forBlock,newScope)
+			}			
+
+			
 		}
 	}
 
 	// this is the recursive call 
 	if (stmt.child != nil) {
-		l.fixVarScopesRoot(stmt.child) 
+		l.fixVarScopesRoot(stmt.child,stmt.vScope) 
 	}
 
 	for _,succ := range (stmt.successors) {
 		if (succ != nil) { 
-			l.fixVarScopesRoot(succ)
+			
+			l.fixVarScopesRoot(succ,stmt.vScope)
 		}
 	}
 
@@ -2601,12 +2646,15 @@ func (l *argoListener) fixVariableScopes() int {
 	// if this is a short var declaration, change the scope
 	// traverse the rest of the graph 
 
+	// set all nodes visited to false 
 	for _, node := range l.statementGraph {
 		node.visited = false; 
 	}
+
+	// recurse down the statementgraph for each function 
 	for _, node := range l.statementGraph {
 		if node.stmtType == "functionDecl" {
-			l.fixVarScopesRoot(node)
+			l.fixVarScopesRoot(node,node.vScope)
 		}
 	}
 	return 1 
