@@ -9,6 +9,11 @@ all: argo2verilog.go genVerilog.go
 	${ANTLR4} -Dlanguage=Go -o parser Argo.g4
 	go build -gcflags 'all=-N -l' argo2verilog.go genVerilog.go 
 
+check: ../test/forstatements.go ../test/forstatements.go ../test/ifstatements.go ../test/channel01.go 
+	../bin/argo2verilog -check -i ../test/forstatements.go
+	../bin/argo2verilog -check -i ../test/ifstatements.go
+	../bin/argo2verilog -check -i ../test/channel01.go 
+
 
 install: argo2verilog 
 	cp argo2verilog ../bin

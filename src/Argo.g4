@@ -34,6 +34,7 @@ statement
     | labeledStmt
     | simpleStmt
     | goStmt
+    | deferStmt
     | returnStmt
     | breakStmt
     | continueStmt
@@ -148,6 +149,10 @@ goStmt
     : 'go' expression
     ;
 
+deferStmt
+    : 'defer' expression
+    ;
+
 sendStmt
     : expression '<-' expression
     ;
@@ -232,6 +237,7 @@ typeName
 // need to add slices 
 typeLit
     : arrayType
+    | sliceType 
     | mapType
     | channelType
     | structType
@@ -240,6 +246,10 @@ typeLit
 
 arrayType
     : '[' arrayLength ']' elementType
+    ;
+
+sliceType
+    : '[' ']' elementType
     ;
 
 arrayLength

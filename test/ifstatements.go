@@ -4,7 +4,6 @@ package main ;
 
 import ( "fmt" ) ;
 
-
 func blammo(i,j int) int {
 	if(i <= j) {
 		return i*j ;
@@ -12,18 +11,16 @@ func blammo(i,j int) int {
 	return i+j ;
 } ;
 
-func blargo(i int) (int,int) {
-	return i+i, i*i ;
-} ;
-
-
 func main() {
 	var i,j,k int ; 
-
+	
 	i = 1 ;
 	j = 2 ; 
 	k = 3 ;
-	
+
+	//addr := net.UDPAddr{net.ParseIP("127.0.0.1"), 3003,"", };
+	//fmt.Printf("the type of the addr variable is %T \n",addr);
+
 	// simple if statement 
 	if  (i < j) {
 		fmt.Printf("I is less than J \n") ; 
