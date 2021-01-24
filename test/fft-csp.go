@@ -19,8 +19,9 @@ package main;
 
 import ("fmt"); 
 
-func node(id int, in1 chan float64, in2 chan float64, out1 chan float64, out2 chan float64, weight float64, control chan uint8 ) {
-	var a,b,value float64; 
+func node(id uint32, in1 chan float64, in2 chan float64, out1 chan float64, out2 chan float64, weight float64, control chan uint8 ) {
+	var a,b,value float64;
+	var msg uint8;
 	var quit bool;
 
 	quit = false;
@@ -37,7 +38,7 @@ func node(id int, in1 chan float64, in2 chan float64, out1 chan float64, out2 ch
 		
 		if (len(control) > 0) {
 			msg = <- control;
-			fmt.Printf("node %d got control message %d \n",id,control)
+			fmt.Printf("node %d got control message %d \n",id,msg)
 		}; 
 	}; 
 } ;
@@ -48,26 +49,27 @@ func main() {
 	// levels*(2^levels)  8*3 = 24 channels 
 	//call a go routing wih node I having channel 
 
-	const FFT_LOG uint32 = 3 ;  // log of the number of inputs/outputs 
+	const FFT_LOG uint32 = 4 ;  // log of the number of inputs/outputs
+	const FFT_LOG1 uint32 = (FFT_LOG+1) 
 	const FFT_VSIZE uint32 = (1<<FFT_LOG) ;  // size of the input vector 
-	const FFT_NODES uint32 = (FFT_VSIZE * FFT_LOG) ; // number of nodes
+	const FFT_NODES uint32 = (FFT_VSIZE * (FFT_LOG + 1) )  ; // number of nodes
 	// each node has 2 inputs + 2 outputs, but outputs are shared as inputs
 	// except at the edges, which are the length of a vector 
 	const FFT_CHANNELS uint32 = (FFT_NODES *2) + (FFT_VSIZE*2)
-	var i int;
+	var i,r,c,n uint32;
 	
 	var all_channels [FFT_CHANNELS]chan float64;
-	var all_controls [FFT_NODES] chan bool;
+	var all_controls [FFT_NODES] chan uint8;
 	
 	fmt.Printf("fft sizes are %d %d %d \n", FFT_LOG, FFT_VSIZE, FFT_NODES) ; 
 
 	// make all the data channels, no buffering 
-	for (i = 0; i< FFT_CHANNELS; i++) {
+	for i = 0; i < FFT_CHANNELS; i++ {
 		all_channels[i]= make(chan float64);
 	}
 
 	// make all the control channels, no buffering 
-	for (i = 0; i< FFT_NODES; i++) {
+	for i = 0; i< FFT_NODES; i++ {
 		all_controls[i]= make(chan uint8);
 	}
 
@@ -84,17 +86,28 @@ func main() {
 	// loop for every level of the FFT, from outputs to inputs.
 	// and create the nodes with the right channel interconnect
 
+	
+	// this loop creates all the nodes 
+	for c = 0; c < FFT_LOG1 ; c++ {
+		for r = 0; r < FFT_VSIZE ; r++ {
+			n = (FFT_VSIZE*c) + r 
+			fmt.Printf(" c%d r:%d n:%d | ",c,r,n);
+		}
+		fmt.Printf(" \n ");			
+	}
+	
 	// this is the output vector 
-	for ( i=0; i< FFT_VSIZE; i++) {
-		go node(i,all_channels);
+	for i=0; i< FFT_VSIZE; i++ {
+		go node(i,all_channels[0],all_channels[1],all_channels[2],all_channels[3],0.0,all_controls[i]);
 	}
 
 	// these are the inner layers/vectors 
-	for ( i=0; i< FFT_VSIZE-2; i++) {
+	for  i=0; i< FFT_VSIZE-2; i++ {
+		
 	}
 
-	// this is the input vector/layer 
-	for ( i=0; i< FFT_VSIZE; i++) {
+	// this is the input vector/layer
+	for  i=0; i< FFT_VSIZE; i++ {
 	}
 	
 }
