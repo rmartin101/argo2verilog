@@ -10,7 +10,7 @@ module generic_bench();
        .clock(clk),
        .rst(rst)
    );
-   
+
    initial begin
       clk = 0;  // force both reset and clock low 
       rst = 0;
