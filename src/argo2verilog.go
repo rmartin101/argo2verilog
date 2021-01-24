@@ -2543,11 +2543,9 @@ func (l *argoListener) generateNewScope(stmt *StatementNode) {
 		if (vNode.parseDef.id == pNode.id) {
 			fmt.Printf("matched short var decl stmt %d\n",stmt.id)
 			stmt.vScope.varNameMap[vNode.sourceName] = vNode
-
+			stmt.vScope.id++;
 		}
 	}
-	
-	// get the name of the var
 
 }
 
@@ -2556,6 +2554,7 @@ func (l *argoListener) generateNewScope(stmt *StatementNode) {
 func (l *argoListener) fixVarScopesRoot(stmt *StatementNode,pScope *VarScope)  {
 	var shortDecl *StatementNode
 	var newScope *VarScope
+	var saveId int
 	
 	shortDecl = nil
 
@@ -2572,9 +2571,13 @@ func (l *argoListener) fixVarScopesRoot(stmt *StatementNode,pScope *VarScope)  {
 		return
 	}
 
-	*stmt.vScope = *pScope
+
+	saveId = stmt.vScope.id 
+	*stmt.vScope = *pScope  // make the copy
+	stmt.vScope.id = saveId        // save the id
 	
-	fmt.Printf("fixVarScopesRoot called stmt %d \n",stmt.id)
+	fmt.Printf("fixVarScopes copying from %d to %d \n",pScope.id,stmt.id)
+
 
 	// find and replace any short var declarations in the scope rules for the statements
 	if (stmt.ifSimple != nil) {
@@ -3602,16 +3605,20 @@ func (l *argoListener) printVarScopes() {
 
 
 	for i, node := range l.statementGraph {
-		fmt.Printf("Stmt: %d: ID:%d at (%d,%d) type:%s parent: %d child: %d scopeVars: ", i,node.id, node.sourceRow, node.sourceCol, node.stmtType,node.parentID,node.childID)
-
 		if (node.vScope != nil) {
+			fmt.Printf("Stmt: %d ID:%d scopeId:%d at (%d,%d) type:%s parent: %d child: %d scopeVars: ", i , node.id, node.vScope.id, node.sourceRow, node.sourceCol, node.stmtType,node.parentID,node.childID)
+
 			scope = node.vScope
 			for vName := range scope.varNameMap {
 				varNode := scope.varNameMap[vName]
 				fmt.Printf("%s:%s ",vName,varNode.canName)
 			}
 			fmt.Printf("\n")			
+		} else { 
+			fmt.Printf("Stmt: %d ID:%d scopeId:nil at (%d,%d) type:%s parent: %d child: %d scopeVars: ", i , node.id, node.sourceRow, node.sourceCol, node.stmtType,node.parentID,node.childID)
 		}
+
+
 	}
 }
 
