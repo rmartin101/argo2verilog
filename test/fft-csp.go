@@ -62,11 +62,8 @@ func node(col uint32,row uint32, in1 chan float64, in2 chan float64, out1 chan f
 	}; 
 } ;
 
-func main() {
-
+func create_fft_array() {
 	// make an array of channels 
-	// levels*(2^levels)  8*3 = 24 channels 
-	//call a go routing wih node I having channel 
 
 	const FFT_LOG uint32 = 3 ;  // log of the number of inputs/outputs
 	const FFT_LOG1 uint32 = (FFT_LOG+1)  // the nubmber of stages/columns of the FFT
@@ -75,76 +72,99 @@ func main() {
 	// each node has 2 inputs + 2 outputs, but outputs are shared as inputs
 	// except at the edges, which are the length of a vector 
 	const FFT_CHANNELS uint32 = (FFT_NODES *2) + (FFT_VSIZE*2)
-	var r,c int32; // have to be ints because used in loops counting backwards, need to go negative
+	var r,c uint32; // the current column of row of the node to create 
 
 	var straight_channels [FFT_LOG][FFT_VSIZE]   chan float64;
 	var cross_channels [FFT_LOG][FFT_VSIZE] chan float64;
 	var output_channels [FFT_VSIZE]         chan float64;
 	var cntl_channels  [FFT_LOG1][FFT_VSIZE] chan uint8;
 
-	var cross_bit_location_in, cross_bit_location_out uint32 ;
-	var cross_bit_in, cross_bit_out uint32 ;
-	var cross_row_input, cross_row_output uint32; 
+	// these are use to compute the target row for the cross channels in the butterfly
+	var cross_distance_in, cross_distance_out uint32 ; // number of rows from current row
+	var cross_bit_value_in, cross_bit_value_out uint32;  // direction 0=decreasing (up) 1=down
+	var cross_row_input, cross_row_output uint32;  // the actual target row 
+
 	
 	fmt.Printf("fft sizes are %d %d %d \n", FFT_LOG, FFT_VSIZE, FFT_NODES) ; 
 
 	// make all the channels. The outer loop indexes the rows. The inner loop indexes the columns
 	// we can set the inputs and outputs by row in the first outer loop 
-	for r = 0; r < int32(FFT_VSIZE) ; r++ {
+	for r = 0; r < FFT_VSIZE ; r++ {
 		output_channels[r] =  make(chan float64);
-		for c = 0; c < int32(FFT_LOG) ; c++ {
+		for c = 0; c < FFT_LOG ; c++ {
 			straight_channels[c][r]= make(chan float64);
 			cross_channels[c][r]= make(chan float64);
 			cntl_channels[c][r] = make(chan uint8, 1);			
 		}
 	}
 
-	// this is the code that creates the butterfly
+	// this is the code that creates the butterfly using go routines and  channels 
 	// recall an N-input FFT butterfly has log N levels
-	// every level is a vector size. e.g. an 8 element FFT has 3 levels and each
+	// every level is a vector with a size. e.g. an 8 element FFT has 3 levels and each
 	// vector length is 8; a 16 input FFT has 4 levels and the number of nodes
-	// in each level is 16 
+	// in each level/vector is 16
+	// We use this terminology to organize a butterfly as a 2D array
+	// each level (or stage) is a column and the vectors element number is the row
+	// So a node is defined as a column-major array with nodes labeled as (c,r)
+	// the 0th column is the input and the LogNth column is the output
+	
 
 	// each node is a go-routine connected by channels
 	// loop for every level of the FFT, from outputs to inputs.
 	// and create the nodes with the right channel interconnect
 
-	// this version of the loop counts backwards from the outputs
-	for r = int32(FFT_VSIZE-1) ; r >=0 ; r-- {
-		for c = int32(FFT_LOG-1); c >=0 ; c-- {
+	// main loop to create compute nodes. For each column, for each row, create the node with
+	// the correct set of channels. 
+	for c = 0; c < FFT_LOG ; c++ {   // we have a log(fftsize) columns 
+		for r = 0; r < FFT_VSIZE ; r++ {  // vector size rows 
 
-			// get the target row for the cross input channel 
-			cross_bit_location_in  = (1<<c)  // bit-location for the input channel
-			cross_bit_location_out = (1<<c+1)  // the output channel is one column to the left 
+			// get the distance from the current row to the target row for the cross input channel 
+			cross_distance_in  = (1<<c)  // distance from current row for the input
+			cross_distance_out = (1<<(c+1))  // the output channel is one column to the right, so the distance is larger
+
+			// the value of the bit in the row number determines if the offset is up or down
+			cross_bit_value_in = r & cross_distance_in
+			cross_bit_value_out = r & cross_distance_out
 			
-			cross_bit_in = uint32(r)|cross_bit_location_in  // the actual bit location
-			cross_bit_out = uint32(r)|cross_bit_location_out 
+			fmt.Printf(":::At node node(%d:%d) distance in, out %d,%d \n",c,r,cross_distance_in,cross_distance_out)
 
 			// target row for the cross input channel 
-			if (cross_bit_location_in == 0) {
-				cross_row_input = cross_bit_in + uint32(r)
+			if (cross_bit_value_in == 0) {
+				cross_row_input = r +  cross_distance_in
 			} else {
-				cross_row_input = cross_bit_in - uint32(r)
+				cross_row_input = r - cross_distance_in
 			}
 
 			// target row for the cross output channel 
-			if (cross_bit_location_out == 0) {
-				cross_row_output = cross_bit_out + uint32(r)
+			if (cross_bit_value_out == 0) {
+				cross_row_output = r + cross_distance_out
 			} else {
-				cross_row_output = cross_bit_out - uint32(r)
+				cross_row_output = r - cross_distance_out
 			}
 
-			// the output column is special, no outputs to other nodes 
-			if (c == int32(FFT_LOG-1)) {
+			// we have to special case the input and output vectors 
+			if (c == 0) { // input column 
+				fmt.Printf("Creating input node(%d:%d) inputs: (%d,%d) outputs:  (%d:%d,%d:%d) \n",c,r, r,cross_row_input, c+1,r, c+1,cross_row_output)
+			} else if (c == (FFT_LOG-1)) {  //output column 
 				/*go node(c,r,straight_channel[c][r],cross_channel[(1<<(c-1))+r],
 					output_channels[r],nil,1,cntl_channel[c][r]);
                                  */
 				fmt.Printf("Creating output node(%d:%d) inputs: (%d:%d,%d:%d) output: %d \n",c,r,c,r,c,cross_row_input,r)
-			} else {	
+			} else { // interior columns/nodes
 				fmt.Printf("Creating node(%d:%d) inputs: (%d:%d,%d:%d) outputs (%d:%d,%d:%d) \n",c,r,c,r,c,cross_row_input,c+1,r,c+1,cross_row_output)
 			}
 		}
 		fmt.Printf(" \n ");			
 	}
 	
+}
+
+func read_outputs() {
+
+}
+
+func main() {
+
+	create_fft_array()
+
 }
