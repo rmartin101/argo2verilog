@@ -43,11 +43,12 @@ func node(col uint32,row uint32, in1 chan complex128, in2 chan complex128, out1 
 	// while quit == false 	
 	for (quit == false) {
 		
-		a = <- in1;
+		a = <- in1;       // read the inputs 
 		b = <- in2;
 	
-	        value = a + Wn*b;
-		out1 <- value;
+	        value = a + Wn*b;  // this line is the main node computation
+
+		out1 <- value;    // write the outputs 
 		out2 <- value;
 
 		// poll the control channel 
@@ -68,11 +69,11 @@ func compute_twiddle_factor(col,row uint32) complex128 {
 	var inner float64;
 	var retval complex128;
 
-	N = (1<<(col+1))-1;   // factors on the unit circle for a N-node FFT (2^col)-1
+	N = (1<<(col+1));   // factors on the unit circle for a N-node FFT (2^col)-1
 	m = row % (N+1);  // need a bit-mask here, but use mod for now 
 	
 	// recall e^-i*2*Pi*m/N = cos(2*Pi*m/N) - i*sin(2*Pi*m/N)
-	inner = 2.0*math.Pi*float64(m)/float64(N) ;
+	inner = 2.0*math.Pi*float64(m)/float64(N) ; // points on complex unit circle 
 	retval = complex(math.Cos(inner),-1.0*math.Sin(inner)) ;
 	return retval;
 }
@@ -108,7 +109,6 @@ func create_fft_array() {
 	for r = 0; r < FFT_VSIZE ; r++ {
 		output_channels[r] =  make(chan complex128);
 		for c = 0; c < FFT_LOG ; c++ {
-
 			straight_channels[c][r]= make(chan complex128);
 			cross_channels[c][r]= make(chan complex128);
 			cntl_channels[c][r] = make(chan uint8, 1);
