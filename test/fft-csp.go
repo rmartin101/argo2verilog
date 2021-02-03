@@ -45,6 +45,7 @@ const FFT_NODES uint32 = (FFT_VSIZE * (FFT_LOG + 1) )  ; // number of nodes
 
 // holds all the sizes of the FTT and channels of the FFT array 
 type FFTarray struct {
+	shuffle_channels [FFT_VSIZE]  chan complex128;    // shuffle the data accourding to the bit-reversal 
 	input_channels [FFT_VSIZE]  chan complex128;   // input links
 	straight_channels [FFT_LOG][FFT_VSIZE]   chan complex128;  // straigt across edges/links
 	cross_channels [FFT_LOG][FFT_VSIZE] chan complex128;  // cross edges/links
@@ -52,6 +53,31 @@ type FFTarray struct {
 	cntl_channels  [FFT_LOG+1][FFT_VSIZE] chan uint8; // gorouting control 
 }
 
+func shuffle_node(row uint32, in chan complex128, out chan complex128, control chan uint8 ) {
+	var inputVal complex128;
+	var msg uint8;
+	var quit bool;
+
+	// while quit == false 	
+	for (quit == false) {
+		
+		inputVal = <- in;  // read a single input 
+		fmt.Printf("----shuffle node (%d) got val %.3f \n",row,inputVal)
+		out <- inputVal;  // copy to the two outputs 
+
+		// poll the control channel 
+		if (len(control) > 0) {
+			msg = <- control;
+			fmt.Printf("shuffle node %d got control message %d \n",row,msg)
+			if (msg == 0xFF) {
+				fmt.Printf("shuffle node %d ending \n",row,msg)
+				return ; 
+			}; 
+		}; 
+
+	};
+}; 
+	
 // the input nodes copy one input to two output at the begining of the FFT
 func input_node(row uint32, in chan complex128, out1 chan complex128, out2 chan complex128, control chan uint8 ) {
 	var inputVal complex128;
@@ -101,7 +127,7 @@ func compute_node(col uint32,row uint32, in1 chan complex128, in2 chan complex12
 	
 	        value = a + Wn*b;  // this line is the main node computation
 
-		fmt.Printf("----compute node (%d:%d) got inputs %.3f %.3f val %.3f \n",col,row,a,b,value)
+		fmt.Printf("----compute node (%d:%d) got inputs %.3f + %.3f * %.3f = %.3f \n",col,row,a,Wn,b,value)
 		
 		out1 <- value;    // write the outputs 
 		out2 <- value;
@@ -118,6 +144,21 @@ func compute_node(col uint32,row uint32, in1 chan complex128, in2 chan complex12
 	}; 
 } ;
 
+/* inp as a numbits number and bitreverses it. 
+ * inp < 2^(numbits) for meaningful bit-reversal
+ */ 
+func bitrev(inp, numbits int) int {
+	var i, rev int;
+
+	i=0;
+	rev = 0;
+	for i=0; i < numbits; i++  {
+		rev = (rev << 1) | (inp & 1);
+		inp >>= 1;
+	}
+	return rev;
+}
+
 // for an FFT of size N, get the twiddle factor for a node at column c, row r
 // recall the twiddle factor is the complex number on the unit circle
 // higher levels (columns) break the circle into more parts
@@ -128,11 +169,15 @@ func compute_twiddle_factor(col,row uint32) complex128 {
 	var retval complex128;
 
 	N = (1<<(col+1));   // factors on the unit circle for a N-node FFT (2^col)-1
-	m = row % (N+1);  // need a bit-mask here, but use mod for now 
-	
+	m = row % N         // need a bit-mask here, but use mod for now 
+
 	// recall e^-i*2*Pi*m/N = cos(2*Pi*m/N) - i*sin(2*Pi*m/N)
 	inner = 2.0*math.Pi*float64(m)/float64(N) ; // fraction on the unit circle to move 
-	retval = complex(math.Cos(inner),-1.0*math.Sin(inner)) ; // definition 
+	retval = complex(math.Cos(inner),-1.0*math.Sin(inner)) ; // definition
+
+	fmt.Printf("twiddle for (%d,%d), m/N (%d,%d), twiddle %.3f \n", col,row,m,N,retval)
+	
+	
 	return retval;
 }
 
@@ -240,7 +285,7 @@ func read_outputs(fft *FFTarray) {
 func main() {
 	var fft *FFTarray;
 	var signal[FFT_VSIZE] float64 ;
-	var i, j int;
+	var i, j,reversed int;
 	var t float64 ;
 
 	fft = new(FFTarray); 
@@ -253,13 +298,17 @@ func main() {
 	// Make a square wave 
 	for i =0; int(i) < len(signal) ; i++  {
 
-		j = int(math.Floor(float64(i/2))) % 2
-		if (j == 0) { 
-			t = float64(1.0000);
-		} else {
-			t = float64(0.0000);
-		}
-		signal[i] = t;
+		//j = int(math.Floor(float64(i/2))) % 2
+		//if (j == 0) { 
+		//t = float64(1.0000);
+		//} else {
+		//t = float64(0.0000);
+		//}
+		j = (i) % 2; 
+		t = float64(j);
+		reversed = bitrev(i,int(FFT_LOG));
+		fmt.Printf("signal[%d] was %d %d %0.3f \n",reversed,i,j,t);
+		signal[reversed] = t;
 	}
 
 
@@ -267,6 +316,7 @@ func main() {
 		fmt.Printf("signal[%d] is %.3f\n",i,signal[i]);		
 		fft.input_channels[i] <- complex(signal[i], 0.0) ; 
 	}
+	
 	time.Sleep(1 *time.Second)
 	read_outputs(fft);
 }
