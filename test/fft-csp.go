@@ -74,7 +74,6 @@ func shuffle_node(row uint32, in chan complex128, out chan complex128, control c
 				return ; 
 			}; 
 		}; 
-
 	};
 }; 
 	
@@ -122,15 +121,22 @@ func compute_node(col uint32,row uint32, in1 chan complex128, in2 chan complex12
 	// while quit == false 	
 	for (quit == false) {
 		
-		a = <- in1;       // read the inputs 
+		a = <- in1;       // read the inputs
+
+		fmt.Printf(" == compute node (%d:%d) got A input %.2f \n",col,row,a)		
 		b = <- in2;
-	
+
+		fmt.Printf(" == compute node (%d:%d) got B input %.2f \n",col,row,b)
+
 	        value = a + Wn*b;  // this line is the main node computation
 
 		fmt.Printf("----compute node (%d:%d) got inputs %.3f + %.3f * %.3f = %.3f \n",col,row,a,Wn,b,value)
 		
-		out1 <- value;    // write the outputs 
-		out2 <- value;
+		//out1 <- value;    // write the outputs 
+		//out2 <- value;
+
+		out1 <- complex(float64(col),float64(row))
+		out2 <- complex(float64(col+100),float64(row+100))
 
 		// poll the control channel 
 		if (len(control) > 0) {
@@ -167,7 +173,7 @@ func compute_twiddle_factor(col,row uint32) complex128 {
 	var m,N uint32; 
 	var inner float64;
 	var retval complex128;
-
+	
 	N = (1<<(col+1));   // factors on the unit circle for a N-node FFT (2^col)-1
 	m = row % N         // need a bit-mask here, but use mod for now 
 
@@ -187,13 +193,21 @@ func create_fft_array(fft *FFTarray) {
 	// each node has 2 inputs + 2 outputs, but outputs are shared as inputs
 	// except at the edges, which are the length of a vector 
 	const FFT_CHANNELS uint32 = (FFT_NODES *2) + (FFT_VSIZE*2)
-	var r,c uint32; // the current column of row of the node to create 
+	var r,c uint32; // the current column of row of the node to create
 	var twiddle complex128
+
 	
 	// these are use to compute the target row for the cross channels in the butterfly
 	var cross_distance_in, cross_distance_out uint32 ; // number of rows from current row
 	var cross_bit_value_in, cross_bit_value_out uint32;  // direction 0=decreasing (up) 1=down
 	var cross_row_input, cross_row_output uint32;  // the actual target row 
+
+	// indexs to the channels in the main channel arrays
+	var a_channel_in_id, b_channel_in_id, a_channel_out_id, b_channel_out_id uint32
+
+	// pointers to the channel in the channel arrays 
+	var a_channel_in, b_channel_in, a_channel_out, b_channel_out chan complex128
+
 	
 	fmt.Printf("fft sizes are %d %d %d \n", FFT_LOG, FFT_VSIZE, FFT_NODES) ; 
 
@@ -241,17 +255,35 @@ func create_fft_array(fft *FFTarray) {
 			// target row for the cross input channel 
 			if (cross_bit_value_in == 0) {
 				cross_row_input = r +  cross_distance_in
+				a_channel_in_id = r
+				b_channel_in_id = cross_row_input
 			} else {
 				cross_row_input = r - cross_distance_in
+				a_channel_in_id = cross_row_input
+				b_channel_in_id = r
 			}
 
-			// target row for the cross output channel 
+			a_channel_in = fft.straight_channels[c][int(a_channel_in_id)]
+			b_channel_in = fft.cross_channels[c][int(b_channel_in_id)]
+			
+			// these are the output channel ID
 			if (cross_bit_value_out == 0) {
 				cross_row_output = r + cross_distance_out
+				a_channel_out_id = r
+				b_channel_out_id = cross_row_output
+				
+				
 			} else {
 				cross_row_output = r - cross_distance_out
+				a_channel_out_id = cross_row_output 
+				b_channel_out_id = r 
 			}
 
+			if (c < (FFT_LOG-1)) {  //output column 
+				a_channel_out = fft.straight_channels[c+1][a_channel_out_id]
+				b_channel_out = fft.cross_channels[c+1][b_channel_out_id]
+			}
+			
 			twiddle = compute_twiddle_factor(c,r)
 			// we have to special case the input an output nodes
 			if (c == 0) {
@@ -260,11 +292,11 @@ func create_fft_array(fft *FFTarray) {
 			}
 			if (c == (FFT_LOG-1)) {  //output column 
 				fmt.Printf("Creating output node(%d:%d) inputs: (%d:%d,%d:%d) output: %d twid:%.3f \n",c,r,c,r,c,cross_row_input,r,twiddle)
-				go compute_node(c,r,fft.straight_channels[c][r],fft.cross_channels[c][cross_row_input],fft.output_channels[r],nil,twiddle,fft.cntl_channels[c][r])
+				go compute_node(c,r,a_channel_in,b_channel_in,fft.output_channels[r],nil,twiddle,fft.cntl_channels[c][r])
 
 			} else { // interior columns/nodes
 				fmt.Printf("Creating node(%d:%d) inputs: (%d:%d,%d:%d) outputs (%d:%d,%d:%d) twid:%.3f\n",c,r,c,r,c,cross_row_input,c+1,r,c+1,cross_row_output,twiddle)
-				go compute_node(c,r,fft.straight_channels[c][r],fft.cross_channels[c][cross_row_input],fft.straight_channels[c+1][r],fft.cross_channels[c+1][cross_row_output],twiddle,fft.cntl_channels[c][r])				
+				go compute_node(c,r,a_channel_in,b_channel_in,a_channel_out,b_channel_out,twiddle,fft.cntl_channels[c][r])				
 			}
 		}
 		fmt.Printf(" \n ");			
@@ -287,10 +319,11 @@ func main() {
 	var signal[FFT_VSIZE] float64 ;
 	var i, j,reversed int;
 	var t float64 ;
-
+	//var cv complex128; 
+	//var r,c int;
+	
 	fft = new(FFTarray); 
 	create_fft_array(fft);
-
 
 	// test the FFT by sending in some signals and make sure we get the
 	// right values in the frequency domain
@@ -304,19 +337,44 @@ func main() {
 		//} else {
 		//t = float64(0.0000);
 		//}
-		j = (i) % 2; 
+		j = (i); 
 		t = float64(j);
 		reversed = bitrev(i,int(FFT_LOG));
 		fmt.Printf("signal[%d] was %d %d %0.3f \n",reversed,i,j,t);
 		signal[reversed] = t;
 	}
 
+	/*
+	i =0; 
+	for c = 0; c < int(FFT_LOG) ; c++ {   // we have a log(fftsize) columns 
+		for r = 0; r < int(FFT_VSIZE) ; r++ {  // vector size rows
+			i++;
+			cv = complex(float64(i),float64(0.0))
+			fmt.Printf("sending value %.1f to straight_channel (%d:%d) \n",cv,c,r)
+			fft.straight_channels[c][r] <- cv 
+			i++;
+			cv = complex(float64(i),float64(0.0))
+			fmt.Printf("sending value %.1f to cross_channel (%d:%d) \n",cv,c,r)
+			fft.cross_channels[c][r] <- cv
 
+			fmt.Printf("sending ending value to (%d:%d) \n",c,r)
+			fft.cntl_channels[c][r] <- uint8(0xFF)
+		}
+	}
+
+	c= int(FFT_LOG+1)
+	for r = 0; r < int(FFT_VSIZE) ; r++ {  // vector size rows
+		fmt.Printf("sending ending value to (%d:%d) \n",c,r)
+		fft.cntl_channels[c][r] <- uint8(0xFF)
+	}
+        */	
+
+	
 	for i =0; i < len(signal) ; i++  {
 		fmt.Printf("signal[%d] is %.3f\n",i,signal[i]);		
 		fft.input_channels[i] <- complex(signal[i], 0.0) ; 
 	}
 	
-	time.Sleep(1 *time.Second)
+	time.Sleep(1*time.Second)
 	read_outputs(fft);
 }
