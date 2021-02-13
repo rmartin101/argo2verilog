@@ -37,6 +37,7 @@ package main;
 import ("fmt"); 
 import ("math");
 import ("time");
+import ("os");
 
 const FFT_LOG uint32 = 3 ;  // log of the number of inputs/outputs
 const FFT_LOG1 uint32 = (FFT_LOG+1)  // the nubmber of stages/columns of the FFT
@@ -47,8 +48,8 @@ const FFT_NODES uint32 = (FFT_VSIZE * (FFT_LOG + 1) )  ; // number of nodes
 type FFTarray struct {
 	shuffle_channels [FFT_VSIZE]  chan complex128;    // shuffle the data accourding to the bit-reversal 
 	input_channels [FFT_VSIZE]  chan complex128;   // input links
-	straight_channels [FFT_LOG][FFT_VSIZE]   chan complex128;  // straigt across edges/links
-	cross_channels [FFT_LOG][FFT_VSIZE] chan complex128;  // cross edges/links
+	a_channels [FFT_LOG][FFT_VSIZE]   chan complex128;  // straigt across edges/links
+	b_channels [FFT_LOG][FFT_VSIZE] chan complex128;  // b_channel edges/links
 	output_channels [FFT_VSIZE]         chan complex128;  // output links
 	cntl_channels  [FFT_LOG+1][FFT_VSIZE] chan uint8; // gorouting control 
 }
@@ -197,7 +198,7 @@ func create_fft_array(fft *FFTarray) {
 	var twiddle complex128
 
 	
-	// these are use to compute the target row for the cross channels in the butterfly
+	// these are use to compute the target row for the b_channel channels in the butterfly
 	var cross_distance_in, cross_distance_out uint32 ; // number of rows from current row
 	var cross_bit_value_in, cross_bit_value_out uint32;  // direction 0=decreasing (up) 1=down
 	var cross_row_input, cross_row_output uint32;  // the actual target row 
@@ -217,8 +218,8 @@ func create_fft_array(fft *FFTarray) {
 		fft.input_channels[r] =  make(chan complex128);
 		fft.output_channels[r] =  make(chan complex128);
 		for c = 0; c < FFT_LOG ; c++ {
-			fft.straight_channels[c][r]= make(chan complex128);
-			fft.cross_channels[c][r]= make(chan complex128);
+			fft.a_channels[c][r]= make(chan complex128);
+			fft.b_channels[c][r]= make(chan complex128);
 			fft.cntl_channels[c][r] = make(chan uint8, 1);
 		}
 		fft.cntl_channels[FFT_LOG][r] = make(chan uint8, 1); // for the input splitter channels 
@@ -257,45 +258,59 @@ func create_fft_array(fft *FFTarray) {
 				cross_row_input = r +  cross_distance_in
 				a_channel_in_id = r
 				b_channel_in_id = cross_row_input
+
+				a_channel_in = fft.a_channels[c][int(a_channel_in_id)]
+				b_channel_in = fft.b_channels[c][int(b_channel_in_id)]
+
+				fmt.Printf("Chan-Node (%d:%d) In: a is a_channel (%d:%d) b is b_channel (%d:%d) \n",c,r,c,a_channel_in_id,c,b_channel_in_id)
 			} else {
 				cross_row_input = r - cross_distance_in
 				a_channel_in_id = cross_row_input
 				b_channel_in_id = r
+
+				a_channel_in = fft.b_channels[c][int(b_channel_in_id)]				
+				b_channel_in = fft.a_channels[c][int(a_channel_in_id)]
+				fmt.Printf("Chan-Node (%d:%d) In: a is cross (%d:%d) b is a_channel (%d:%d) \n",c,r,c,a_channel_in_id,c,b_channel_in_id)
 			}
 
-			a_channel_in = fft.straight_channels[c][int(a_channel_in_id)]
-			b_channel_in = fft.cross_channels[c][int(b_channel_in_id)]
-			
+
 			// these are the output channel ID
-			if (cross_bit_value_out == 0) {
-				cross_row_output = r + cross_distance_out
-				a_channel_out_id = r
-				b_channel_out_id = cross_row_output
+			if (c < (FFT_LOG-1)) {  //output column 
+				if (cross_bit_value_out == 0) {
+					cross_row_output = r + cross_distance_out
+					a_channel_out_id = r
+					b_channel_out_id = cross_row_output
+
+					a_channel_out = fft.a_channels[c+1][int(a_channel_out_id)]
+					b_channel_out = fft.b_channels[c+1][int(b_channel_in_id)]
+
+					fmt.Printf("Chan-Node (%d:%d) Out: a is a_channel (%d:%d) b is cross (%d:%d) \n",c,r,c+1,a_channel_out_id,c+1,b_channel_out_id)				
 				
+				} else {
+					cross_row_output = r - cross_distance_out
+					a_channel_out_id = cross_row_output 
+					b_channel_out_id = r
+
+					a_channel_out = fft.b_channels[c+1][int(a_channel_in_id)]
+					b_channel_out = fft.a_channels[c+1][int(b_channel_out_id)]
 				
-			} else {
-				cross_row_output = r - cross_distance_out
-				a_channel_out_id = cross_row_output 
-				b_channel_out_id = r 
+					fmt.Printf("Chan-Node (%d:%d) Out: a is cross (%d:%d) b is a_channel (%d:%d) \n",c,r,c+1,a_channel_out_id,c+1,b_channel_out_id)				
+				}
+			} else{
+				a_channel_out = fft.output_channels[int(r)]
+				b_channel_out = nil
 			}
 
-			if (c < (FFT_LOG-1)) {  //output column 
-				a_channel_out = fft.straight_channels[c+1][a_channel_out_id]
-				b_channel_out = fft.cross_channels[c+1][b_channel_out_id]
-			}
-			
 			twiddle = compute_twiddle_factor(c,r)
 			// we have to special case the input an output nodes
 			if (c == 0) {
 				fmt.Printf("Creating input node(%d) inputs: (%d) outputs: (%d:%d) (%d:%d) \n",r,r,c,r,c,cross_row_input)
-				go input_node(r,fft.input_channels[r],fft.straight_channels[c][r],fft.cross_channels[c][r],fft.cntl_channels[FFT_LOG][r]);
+				go input_node(r,fft.input_channels[r],fft.a_channels[c][r],fft.b_channels[c][r],fft.cntl_channels[FFT_LOG][r]);
 			}
 			if (c == (FFT_LOG-1)) {  //output column 
-				fmt.Printf("Creating output node(%d:%d) inputs: (%d:%d,%d:%d) output: %d twid:%.3f \n",c,r,c,r,c,cross_row_input,r,twiddle)
 				go compute_node(c,r,a_channel_in,b_channel_in,fft.output_channels[r],nil,twiddle,fft.cntl_channels[c][r])
 
 			} else { // interior columns/nodes
-				fmt.Printf("Creating node(%d:%d) inputs: (%d:%d,%d:%d) outputs (%d:%d,%d:%d) twid:%.3f\n",c,r,c,r,c,cross_row_input,c+1,r,c+1,cross_row_output,twiddle)
 				go compute_node(c,r,a_channel_in,b_channel_in,a_channel_out,b_channel_out,twiddle,fft.cntl_channels[c][r])				
 			}
 		}
@@ -350,12 +365,12 @@ func main() {
 		for r = 0; r < int(FFT_VSIZE) ; r++ {  // vector size rows
 			i++;
 			cv = complex(float64(i),float64(0.0))
-			fmt.Printf("sending value %.1f to straight_channel (%d:%d) \n",cv,c,r)
-			fft.straight_channels[c][r] <- cv 
+			fmt.Printf("sending value %.1f to a_channel_channel (%d:%d) \n",cv,c,r)
+			fft.a_channels[c][r] <- cv 
 			i++;
 			cv = complex(float64(i),float64(0.0))
 			fmt.Printf("sending value %.1f to cross_channel (%d:%d) \n",cv,c,r)
-			fft.cross_channels[c][r] <- cv
+			fft.b_channels[c][r] <- cv
 
 			fmt.Printf("sending ending value to (%d:%d) \n",c,r)
 			fft.cntl_channels[c][r] <- uint8(0xFF)
@@ -376,5 +391,8 @@ func main() {
 	}
 	
 	time.Sleep(1*time.Second)
+	if (1==1) {
+		os.Exit(1);
+	}
 	read_outputs(fft);
 }
