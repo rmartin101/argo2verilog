@@ -37,11 +37,11 @@ package main;
 import ("fmt"); 
 import ("math");
 import ("runtime");
-import ("time");
+import ("flag");
 import ("github.com/dterei/gotsc");
 
-const FFT_LOG uint32 = 3 ;  // log of the number of inputs/outputs
-const FFT_LOG1 uint32 = (FFT_LOG+1)  // the nubmber of stages/columns of the FFT
+const FFT_LOG uint32 = 4 ;  // log of the number of inputs/outputs
+const FFT_LOG1 uint32 = (FFT_LOG+1)  // the nubmber of stages/columns of the FFT with the input column
 const FFT_VSIZE uint32 = (1<<FFT_LOG) ;  // size of the input vector 
 const FFT_NODES uint32 = (FFT_VSIZE * (FFT_LOG + 1) )  ; // number of nodes
 
@@ -105,17 +105,15 @@ func input_node(row uint32, in chan complex128, out1 chan complex128, out2 chan 
 	quit = false;
 	// while quit == false 	
 	for (quit == false) {
-		inputVal = <- in;  // read a single input
-		if (debug == 1) { 
-			fmt.Printf("----input node (%d) got input %.3f \n",row,inputVal)
-		}
-		
-		out1 <- inputVal;  // copy to the two outputs 
-		out2 <- inputVal;
-
-		// poll the control channel 
-		if (len(control) > 0) {
-			msg = <- control;
+		// poll the control channel
+		select {
+		case inputVal = <- in:  // read a single input
+			if (debug == 1) { 
+				fmt.Printf("----input node (%d) got input %.3f \n",row,inputVal)
+			}
+			out1 <- inputVal;  // copy to the two outputs 
+			out2 <- inputVal;
+		case msg = <- control:
 			fmt.Printf("----input node (%d) control message %d \n",row,msg)
 			switch msg {
 			case QUIT:
@@ -126,10 +124,11 @@ func input_node(row uint32, in chan complex128, out1 chan complex128, out2 chan 
 			case DEBUG_OFF:
 				debug = 0;
 			default:
-				fmt.Printf("----input node (%d) unknown message type %d \n",row,msg)				
-			};
-		}; 
+				fmt.Printf("----input node (%d) unknown message type %d \n",row,msg)
+			}
 
+		}
+		
 	};
 };
 
@@ -148,24 +147,19 @@ func compute_node(col uint32,row uint32, in1 chan complex128, in2 chan complex12
 	
 	// while quit == false 	
 	for (quit == false) {
-		
-		a = <- in1;       // read the inputs
-		b = <- in2;
+		select {
+		case a = <- in1:       // read the inputs
+			b = <- in2;
+			value = a + Wn*b;  // this line is the main node computation
 
-	        value = a + Wn*b;  // this line is the main node computation
-
-		if (debug == 1) {
-			fmt.Printf("----compute node (%d:%d) inputs %.3f + %.3f * %.3f = %.3f \n",col,row,a,Wn,b,value)
-		}
-		
-		out1 <- value;    // write the outputs
-		if (col < (FFT_LOG-1)) { // last column only has 1 output channel 
-			out2 <- value;
-		}
-		
-		// poll the control channel 
-		if (len(control) > 0) {
-			msg = <- control;
+			if (debug == 1) {
+				fmt.Printf("----compute node (%d:%d) inputs %.3f + %.3f * %.3f = %.3f \n",col,row,a,Wn,b,value)
+			}
+			out1 <- value;    // write the outputs
+			if (col < (FFT_LOG-1)) { // last column only has 1 output channel 
+				out2 <- value;
+			};
+		case msg = <- control:
 			fmt.Printf("----compute node (%d:%d) control message %d \n",col,row,msg)
 			switch msg {
 			case QUIT:
@@ -178,7 +172,9 @@ func compute_node(col uint32,row uint32, in1 chan complex128, in2 chan complex12
 			default:
 				fmt.Printf("----compute node (%d:%d) unknown message type %d \n",col,row,msg)				
 			};
+
 		}; 
+
 	}; 
 } ;
 
@@ -186,8 +182,10 @@ func compute_node(col uint32,row uint32, in1 chan complex128, in2 chan complex12
 func message_all(fft *FFTarray, message uint8) {
 	var c, r int ;  // column and row 
 	for c = 0; c < int(FFT_LOG1) ; c++ {   // we have a log(fftsize) columns
- 		for r = 0; r < int(FFT_VSIZE) ; r++ {  // vector size rows 
+ 		for r = 0; r < int(FFT_VSIZE) ; r++ {  // vector size rows
+			fmt.Printf("sending message 0x%x to (%d:%d) \n",message,c,r)
 			fft.cntl_channels[c][r] <- message;
+
 		}
 	}
 	
@@ -218,9 +216,9 @@ func create_fft_array(fft *FFTarray) {
 		for c = 0; c < FFT_LOG ; c++ {
 			fft.a_channels[c][r]= make(chan complex128);
 			fft.b_channels[c][r]= make(chan complex128);
-			fft.cntl_channels[c][r] = make(chan uint8, 1);
+			fft.cntl_channels[c][r] = make(chan uint8);
 		}
-		fft.cntl_channels[FFT_LOG1][r] = make(chan uint8, 1); // for the input split channels 
+		fft.cntl_channels[FFT_LOG][r] = make(chan uint8); // for the input split channels 
 	}
 
 	// this is the code that creates the butterfly using go routines and  channels 
@@ -271,7 +269,7 @@ func create_fft_array(fft *FFTarray) {
 			// logic to set the output nodes 
 			if (c == 0) {  // the first layer needs input nodes
 				reversed = bitrev(int(r),int(FFT_LOG));				
-				go input_node(r,fft.input_channels[reversed],channel1_out,channel2_out,fft.cntl_channels[FFT_LOG1][r]);
+				go input_node(r,fft.input_channels[reversed],channel1_out,channel2_out,fft.cntl_channels[0][r]);
 			} else { // compute layers
 				twiddle = compute_twiddle_factor(c-1,r)
 				channel1_in = fft.a_channels[c-1][int(r)]
@@ -283,22 +281,24 @@ func create_fft_array(fft *FFTarray) {
 				twiddle = compute_twiddle_factor(c,r)
 				channel1_in = fft.a_channels[c][int(r)]
 				channel2_in = fft.b_channels[c][int(r)]				
-				go compute_node(c,r,channel1_in,channel2_in,fft.output_channels[r],nil,twiddle,fft.cntl_channels[c][r])
+				go compute_node(c,r,channel1_in,channel2_in,fft.output_channels[r],nil,twiddle,fft.cntl_channels[c+1][r])
 			}
 		}
 	}; // end for compute nodes
 }
 
-func read_outputs(fft *FFTarray) {
+func read_outputs(fft *FFTarray,number int,printIt bool) {
+	var i int ; 
 	var value complex128;
 
-	if (len(fft.output_channels) < 64 ) {
+	for i =0; i< number; i++ {
 		for i, _ := range fft.output_channels {
 			value = <- fft.output_channels[i] ;
-			fmt.Printf("output: %d got val %.3f \n",i,value);
+			if printIt {
+				fmt.Printf("output: %d got val %.3f \n",i,value);
+			}
 		}
-	} 
-
+	}
 }
 
 func main() {
@@ -306,17 +306,23 @@ func main() {
 	var signal[FFT_VSIZE] float64 ;
 	var i, j int;
 	var t float64 ;
-	//var cv complex128; 
-	//var r,c int;
+	var goProcsFlag_p *int
+	var procsFlag int
+
 	
-	runtime.GOMAXPROCS(8)
+	goProcsFlag_p = flag.Int("p",1,"set GOMAXPROCS")
+	flag.Parse()
+	
+	procsFlag = *goProcsFlag_p;
+	
+	// get the maximum number of go processes to use from the arguments
+	runtime.GOMAXPROCS(procsFlag)
 	
 	fft = new(FFTarray); 
 	create_fft_array(fft);
 
 	// test the FFT by sending in some signals and make sure we get the
 	// right values in the frequency domain
-
 	// Make a square wave 
 	for i =0; int(i) < len(signal) ; i++  {
 		j = int(math.Floor(float64(i/2))) % 2
@@ -328,8 +334,6 @@ func main() {
 		signal[i] = t;
 	}
 
-
-	
 	// for i =0; i < len(signal) ; i++  {
 	// 	fmt.Printf("signal[%d] is %.3f\n",i,signal[i]);		
 	// 	fft.input_channels[i] <- complex(signal[i], 0.0) ; 
@@ -338,23 +342,23 @@ func main() {
 
 	message_all(fft,DEBUG_ON)
 	for i =0; i < len(signal) ; i++  {
-		fft.input_channels[i] <- complex(signal[i], 0.0) ; 
+		fft.input_channels[i] <- complex(signal[i]+1.0, 0.0) ; 
 	}
-	read_outputs(fft);
+	read_outputs(fft, 1,false);
 	message_all(fft,DEBUG_OFF)
-	
+
 	tsc := gotsc.TSCOverhead()
 	start := gotsc.BenchStart()
 	for i =0; i < len(signal) ; i++  {
 		fft.input_channels[i] <- complex(signal[i], 0.0) ; 
 	}
-	read_outputs(fft);
 	end := gotsc.BenchEnd()
-	time.Sleep(1 * time.Second)
-	
+	read_outputs(fft,1,false);
+
 	avg := (end - start - tsc)
-	fmt.Println("TSC Overhead:", tsc)
-	fmt.Println("Cycles:", avg)
+	//fmt.Println("TSC Overhead:", tsc)
+	//fmt.Println("Cycles:", avg)
+	fmt.Printf("%d,%d,%d \n",FFT_VSIZE,procsFlag,avg);
 
 }
 
