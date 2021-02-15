@@ -36,121 +36,31 @@ References:
 package main;
 import ("fmt"); 
 import ("math");
+import ("runtime");
 import ("time");
-import ("os");
+import ("github.com/dterei/gotsc");
 
 const FFT_LOG uint32 = 3 ;  // log of the number of inputs/outputs
 const FFT_LOG1 uint32 = (FFT_LOG+1)  // the nubmber of stages/columns of the FFT
 const FFT_VSIZE uint32 = (1<<FFT_LOG) ;  // size of the input vector 
 const FFT_NODES uint32 = (FFT_VSIZE * (FFT_LOG + 1) )  ; // number of nodes
 
-// holds all the sizes of the FTT and channels of the FFT array 
+const QUIT uint8 = 0xFF ;
+const DEBUG_ON uint8 = 0xDE;
+const DEBUG_OFF uint8 = 0x0D;
+
+// make an array of channels 
+// holds all the sizes of the FTT and channels of the FFT array
+// each node has 2 inputs + 2 outputs, but outputs are shared as inputs
+// except at the edges, which are the length of a vector
 type FFTarray struct {
-	shuffle_channels [FFT_VSIZE]  chan complex128;    // shuffle the data accourding to the bit-reversal 
 	input_channels [FFT_VSIZE]  chan complex128;   // input links
+	shuffle_channels [FFT_VSIZE]  chan complex128;    // shuffle the data accourding to the bit-reversal 
 	a_channels [FFT_LOG][FFT_VSIZE]   chan complex128;  // straigt across edges/links
 	b_channels [FFT_LOG][FFT_VSIZE] chan complex128;  // b_channel edges/links
 	output_channels [FFT_VSIZE]         chan complex128;  // output links
-	cntl_channels  [FFT_LOG+1][FFT_VSIZE] chan uint8; // gorouting control 
+	cntl_channels  [FFT_LOG+1][FFT_VSIZE] chan uint8; // gorouting control for all nodes 
 }
-
-func shuffle_node(row uint32, in chan complex128, out chan complex128, control chan uint8 ) {
-	var inputVal complex128;
-	var msg uint8;
-	var quit bool;
-
-	// while quit == false 	
-	for (quit == false) {
-		
-		inputVal = <- in;  // read a single input 
-		fmt.Printf("----shuffle node (%d) got val %.3f \n",row,inputVal)
-		out <- inputVal;  // copy to the two outputs 
-
-		// poll the control channel 
-		if (len(control) > 0) {
-			msg = <- control;
-			fmt.Printf("shuffle node %d got control message %d \n",row,msg)
-			if (msg == 0xFF) {
-				fmt.Printf("shuffle node %d ending \n",row,msg)
-				return ; 
-			}; 
-		}; 
-	};
-}; 
-	
-// the input nodes copy one input to two output at the begining of the FFT
-func input_node(row uint32, in chan complex128, out1 chan complex128, out2 chan complex128, control chan uint8 ) {
-	var inputVal complex128;
-	var msg uint8;
-	var quit bool;
-
-	quit = false;
-
-	fmt.Printf(" == input-node (%d) %p %p %p \n",row,in,out1,out2)
-	// while quit == false 	
-	for (quit == false) {
-		inputVal = <- in;  // read a single input 
-
-		fmt.Printf("----input node (%d) got val %.3f \n",row,inputVal)
-		
-		out1 <- inputVal;  // copy to the two outputs 
-		out2 <- inputVal;
-
-		// poll the control channel 
-		if (len(control) > 0) {
-			msg = <- control;
-			fmt.Printf("input node %d got control message %d \n",row,msg)
-			if (msg == 0xFF) {
-				fmt.Printf("input node %d ending \n",row,msg)
-				return ; 
-			}; 
-		}; 
-
-	};
-};
-
-// a compute node has a 2D address (columns,row), two inputs. two outputs, a twiddle factor,
-// and a control channel.
-// A compute node takes 2 inputs and sends the result to the two outputs
-
-func compute_node(col uint32,row uint32, in1 chan complex128, in2 chan complex128, out1 chan complex128, out2 chan complex128, Wn complex128, control chan uint8 ) {
-	var a,b,value complex128;
-	var msg uint8;
-	var quit bool;
-
-	quit = false;
-	fmt.Printf(" == compute-node (%d:%d) %p %p %p %p \n",col,row,in1,in2,out1,out2)
-	// while quit == false 	
-	for (quit == false) {
-		
-		a = <- in1;       // read the inputs
-
-		fmt.Printf(" XX compute node (%d:%d) got A input %.2f \n",col,row,a)
-		b = <- in2;
-
-		fmt.Printf(" XX compute node (%d:%d) got B input %.2f \n",col,row,b)
-
-	        value = a + Wn*b;  // this line is the main node computation
-
-		fmt.Printf("----compute node (%d:%d) got inputs %.3f + %.3f * %.3f = %.3f \n",col,row,a,Wn,b,value)
-		
-		out1 <- value;    // write the outputs 
-		out2 <- value;
-
-		//out1 <- complex(float64(col),float64(row))
-		//out2 <- complex(float64(col),float64(row))
-
-		// poll the control channel 
-		if (len(control) > 0) {
-			msg = <- control;
-			fmt.Printf("node %d:%d got control message %d \n",col,row,msg)
-			if (msg == 0xFF) {
-				fmt.Printf("node %d:%d ending \n",col,row,msg)
-				return ; 
-			}; 
-		}; 
-	}; 
-} ;
 
 /* inp as a numbits number and bitreverses it. 
  * inp < 2^(numbits) for meaningful bit-reversal
@@ -177,27 +87,118 @@ func compute_twiddle_factor(col,row uint32) complex128 {
 	var retval complex128;
 	
 	N = (1<<(col+1));   // factors on the unit circle for a N-node FFT (2^col)-1
-	m = row % N         // need a bit-mask here, but use mod for now 
+	m = row & (N -1)    // row % N , recall that x modulo y = (x & (y − 1))
 
 	// recall e^-i*2*Pi*m/N = cos(2*Pi*m/N) - i*sin(2*Pi*m/N)
 	inner = 2.0*math.Pi*float64(m)/float64(N) ; // fraction on the unit circle to move 
-	retval = (complex(math.Cos(inner),-1.0*math.Sin(inner))) ; // definition
-
-	fmt.Printf("twiddle for (%d,%d), m/N (%d,%d), twiddle %.3f \n", col,row,m,N,retval)
-	
-	
+	retval = (complex(math.Cos(inner),-1.0*math.Sin(inner))) ; // definition of exponent above
 	return retval;
 }
 
-func create_fft_array(fft *FFTarray) {
-	// make an array of channels 
+// the input nodes copy one input to two output at the begining of the FFT
+func input_node(row uint32, in chan complex128, out1 chan complex128, out2 chan complex128, control chan uint8 ) {
+	var inputVal complex128;
+	var msg uint8;
+	var quit bool;
+	var debug int;
+	
+	quit = false;
+	// while quit == false 	
+	for (quit == false) {
+		inputVal = <- in;  // read a single input
+		if (debug == 1) { 
+			fmt.Printf("----input node (%d) got input %.3f \n",row,inputVal)
+		}
+		
+		out1 <- inputVal;  // copy to the two outputs 
+		out2 <- inputVal;
 
-	// each node has 2 inputs + 2 outputs, but outputs are shared as inputs
-	// except at the edges, which are the length of a vector 
+		// poll the control channel 
+		if (len(control) > 0) {
+			msg = <- control;
+			fmt.Printf("----input node (%d) control message %d \n",row,msg)
+			switch msg {
+			case QUIT:
+				fmt.Printf("----input node (%d) ending \n",row,msg)
+				return ; 				
+			case DEBUG_ON:
+				debug = 1;
+			case DEBUG_OFF:
+				debug = 0;
+			default:
+				fmt.Printf("----input node (%d) unknown message type %d \n",row,msg)				
+			};
+		}; 
+
+	};
+};
+
+// a compute node has a 2D address (columns,row), two inputs. two outputs, a twiddle factor,
+// and a control channel.
+// A compute node takes 2 inputs and sends the result to the two outputs
+
+func compute_node(col uint32,row uint32, in1 chan complex128, in2 chan complex128, out1 chan complex128, out2 chan complex128, Wn complex128, control chan uint8 ) {
+	var a,b,value complex128;
+	var msg uint8;
+	var quit bool;
+	var debug int; 
+
+	quit = false;
+	debug = 0 ;
+	
+	// while quit == false 	
+	for (quit == false) {
+		
+		a = <- in1;       // read the inputs
+		b = <- in2;
+
+	        value = a + Wn*b;  // this line is the main node computation
+
+		if (debug == 1) {
+			fmt.Printf("----compute node (%d:%d) inputs %.3f + %.3f * %.3f = %.3f \n",col,row,a,Wn,b,value)
+		}
+		
+		out1 <- value;    // write the outputs
+		if (col < (FFT_LOG-1)) { // last column only has 1 output channel 
+			out2 <- value;
+		}
+		
+		// poll the control channel 
+		if (len(control) > 0) {
+			msg = <- control;
+			fmt.Printf("----compute node (%d:%d) control message %d \n",col,row,msg)
+			switch msg {
+			case QUIT:
+				fmt.Printf("----compute node (%d:%d) ending \n",col,row,msg)
+				return ; 				
+			case DEBUG_ON:
+				debug = 1;
+			case DEBUG_OFF:
+				debug = 0;
+			default:
+				fmt.Printf("----compute node (%d:%d) unknown message type %d \n",col,row,msg)				
+			};
+		}; 
+	}; 
+} ;
+
+// set debugging, 1 is on, 0 is off 
+func message_all(fft *FFTarray, message uint8) {
+	var c, r int ;  // column and row 
+	for c = 0; c <= int(FFT_LOG) ; c++ {   // we have a log(fftsize) columns
+ 		for r = 0; r < int(FFT_VSIZE) ; r++ {  // vector size rows 
+			fft.cntl_channels[c][r] <- message;
+		}
+	}
+	
+}
+func create_fft_array(fft *FFTarray) {
 	const FFT_CHANNELS uint32 = (FFT_NODES *2) + (FFT_VSIZE*2)
 	var r,c uint32; // the current column of row of the node to create
-	var twiddle complex128
+	var reversed int   // bit reversed of input index row 
 	
+	var twiddle complex128  // twiddle factor for a compute node 
+
 	// these are use to compute the target row for the b_channel channels in the butterfly
 	var cross_distance_out uint32 ; // number of rows from current row
 	var cross_bit_value_out uint32;  // direction 0=decreasing (up) 1=down
@@ -242,13 +243,6 @@ func create_fft_array(fft *FFTarray) {
 	// A channel's c,r value addressed the input of a a compute node.  So compute node A and B input channels 
 
 	for c = 0; c < FFT_LOG ; c++ {   // we have a log(fftsize) columns 
-		for r = 0; r < FFT_VSIZE ; r++ {  // vector size rows
-			fmt.Printf("ptrName,%d:%d_A,%p \n",c,r,fft.a_channels[c][r])
-			fmt.Printf("ptrName,%d:%d_B,%p \n",c,r,fft.b_channels[c][r])
-		}
-	}
-	
-	for c = 0; c < FFT_LOG ; c++ {   // we have a log(fftsize) columns 
 		for r = 0; r < FFT_VSIZE ; r++ {  // vector size rows 
 
 			// get the distance from the current row to the target row for the cross input channel 
@@ -274,23 +268,15 @@ func create_fft_array(fft *FFTarray) {
 				channel2_out = fft.b_channels[c][int(channel2_out_id)]
 			}
 
-
-			fmt.Printf("iteration %d:%d a_in: %p b_in: %p a_out: %p b_out: %p \n",c,r,channel1_in,channel2_in,channel1_out,channel2_out)
-			
 			// logic to set the output nodes 
 			if (c == 0) {  // the first layer needs input nodes
-
-				
-				go input_node(r,fft.input_channels[r],channel1_out,channel2_out,fft.cntl_channels[FFT_LOG][r]);
-				fmt.Printf("Input-Node (%d) out chan are A(%d:%d) and B(%d:%d) \n",r,c,channel1_out_id,c,channel2_out_id)
+				reversed = bitrev(int(r),int(FFT_LOG));				
+				go input_node(r,fft.input_channels[reversed],channel1_out,channel2_out,fft.cntl_channels[FFT_LOG][r]);
 			} else { // compute layers
 				twiddle = compute_twiddle_factor(c-1,r)
-
 				channel1_in = fft.a_channels[c-1][int(r)]
 				channel2_in = fft.b_channels[c-1][int(r)]
-				fmt.Printf("Chan-Node (%d:%d) Out: a is channel1_ (%d:%d) b channel2 (%d:%d) twiddle %.3f \n",c-1,r,c,channel1_out_id,c,channel2_out_id,twiddle)
 				go compute_node(c-1,r,channel1_in,channel2_in,channel1_out,channel2_out,twiddle,fft.cntl_channels[c][r])
-
 			}
 			// last layer needs output nodes 
 			if (c == (FFT_LOG-1)) {
@@ -298,31 +284,32 @@ func create_fft_array(fft *FFTarray) {
 				channel1_in = fft.a_channels[c][int(r)]
 				channel2_in = fft.b_channels[c][int(r)]				
 				go compute_node(c,r,channel1_in,channel2_in,fft.output_channels[r],nil,twiddle,fft.cntl_channels[c][r])
-				fmt.Printf("Chan-Output (%d:%d) In: %d %d \n",c,r,c,r)
 			}
 		}
-		fmt.Printf(" \n ");			
 	}; // end for compute nodes
 }
 
 func read_outputs(fft *FFTarray) {
 	var value complex128;
 
-	for i, _ := range fft.output_channels {
-		value = <- fft.output_channels[i] ;
-		fmt.Printf("output: %d got val %.3f \n",i,value);		
-	}
-
+	if (len(fft.output_channels) < 64 ) {
+		for i, _ := range fft.output_channels {
+			value = <- fft.output_channels[i] ;
+			fmt.Printf("output: %d got val %.3f \n",i,value);
+		}
+	} 
 
 }
 
 func main() {
 	var fft *FFTarray;
 	var signal[FFT_VSIZE] float64 ;
-	var i, j,reversed int;
+	var i, j int;
 	var t float64 ;
 	//var cv complex128; 
 	//var r,c int;
+	
+	runtime.GOMAXPROCS(8)
 	
 	fft = new(FFTarray); 
 	create_fft_array(fft);
@@ -332,54 +319,41 @@ func main() {
 
 	// Make a square wave 
 	for i =0; int(i) < len(signal) ; i++  {
-
-		//j = int(math.Floor(float64(i/2))) % 2
-		//if (j == 0) { 
-		//t = float64(1.0000);
-		//} else {
-		//t = float64(0.0000);
-		//}
-		j = (i); 
-		t = float64(j);
-		reversed = bitrev(i,int(FFT_LOG));
-		fmt.Printf("signal[%d] was %d %d %0.3f \n",reversed,i,j,t);
-		signal[reversed] = t;
-	}
-
-	/*
-	i =0; 
-	for c = 0; c < int(FFT_LOG) ; c++ {   // we have a log(fftsize) columns 
-		for r = 0; r < int(FFT_VSIZE) ; r++ {  // vector size rows
-			i++;
-			cv = complex(float64(i),float64(0.0))
-			fmt.Printf("sending value %.1f to a_channel_channel (%d:%d) \n",cv,c,r)
-			fft.a_channels[c][r] <- cv 
-			i++;
-			cv = complex(float64(i),float64(0.0))
-			fmt.Printf("sending value %.1f to cross_channel (%d:%d) \n",cv,c,r)
-			fft.b_channels[c][r] <- cv
-
-			fmt.Printf("sending ending value to (%d:%d) \n",c,r)
-			fft.cntl_channels[c][r] <- uint8(0xFF)
+		j = int(math.Floor(float64(i/2))) % 2
+		if (j == 0) { 
+			t = float64(1.0000);
+		} else {
+			t = float64(0.0000);
 		}
+		signal[i] = t;
 	}
 
-	c= int(FFT_LOG+1)
-	for r = 0; r < int(FFT_VSIZE) ; r++ {  // vector size rows
-		fmt.Printf("sending ending value to (%d:%d) \n",c,r)
-		fft.cntl_channels[c][r] <- uint8(0xFF)
-	}
-        */	
 
 	
+	// for i =0; i < len(signal) ; i++  {
+	// 	fmt.Printf("signal[%d] is %.3f\n",i,signal[i]);		
+	// 	fft.input_channels[i] <- complex(signal[i], 0.0) ; 
+	// }
+	// read_outputs(fft);
+
+	message_all(fft,DEBUG_ON)
 	for i =0; i < len(signal) ; i++  {
-		fmt.Printf("signal[%d] is %.3f\n",i,signal[i]);		
 		fft.input_channels[i] <- complex(signal[i], 0.0) ; 
 	}
+	read_outputs(fft);
 	
-	time.Sleep(1*time.Second)
-	if (1==0) {
-		os.Exit(1);
+	tsc := gotsc.TSCOverhead()
+	start := gotsc.BenchStart()
+	for i =0; i < len(signal) ; i++  {
+		fft.input_channels[i] <- complex(signal[i], 0.0) ; 
 	}
 	read_outputs(fft);
+	end := gotsc.BenchEnd()
+	time.Sleep(1 * time.Second)
+	
+	avg := (end - start - tsc)
+	fmt.Println("TSC Overhead:", tsc)
+	fmt.Println("Cycles:", avg)
+
 }
+
