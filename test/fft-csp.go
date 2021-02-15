@@ -181,7 +181,7 @@ func compute_twiddle_factor(col,row uint32) complex128 {
 
 	// recall e^-i*2*Pi*m/N = cos(2*Pi*m/N) - i*sin(2*Pi*m/N)
 	inner = 2.0*math.Pi*float64(m)/float64(N) ; // fraction on the unit circle to move 
-	retval = complex(math.Cos(inner),-1.0*math.Sin(inner)) ; // definition
+	retval = (complex(math.Cos(inner),-1.0*math.Sin(inner))) ; // definition
 
 	fmt.Printf("twiddle for (%d,%d), m/N (%d,%d), twiddle %.3f \n", col,row,m,N,retval)
 	
@@ -204,10 +204,10 @@ func create_fft_array(fft *FFTarray) {
 	var cross_row_output uint32;  // the actual target row
 
 	// indexes to the channels in the main channel arrays
-	var a_channel_out_id, b_channel_out_id uint32
+	var channel1_out_id, channel2_out_id uint32
 	
 	// pointers to the channel in the channel arrays 
-	var a_channel_in, b_channel_in, a_channel_out, b_channel_out chan complex128
+	var channel1_in, channel2_in, channel1_out, channel2_out chan complex128
 	
 	// make all the channels. The outer loop indexes the rows. The inner loop indexes the columns
 	// we can set the inputs and outputs by row in the first outer loop 
@@ -243,8 +243,8 @@ func create_fft_array(fft *FFTarray) {
 
 	for c = 0; c < FFT_LOG ; c++ {   // we have a log(fftsize) columns 
 		for r = 0; r < FFT_VSIZE ; r++ {  // vector size rows
-			fmt.Printf("A_%d:%d,%p \n",c,r,fft.a_channels[c][r])
-			fmt.Printf("B_%d:%d,%p \n",c,r,fft.b_channels[c][r])
+			fmt.Printf("ptrName,%d:%d_A,%p \n",c,r,fft.a_channels[c][r])
+			fmt.Printf("ptrName,%d:%d_B,%p \n",c,r,fft.b_channels[c][r])
 		}
 	}
 	
@@ -256,40 +256,48 @@ func create_fft_array(fft *FFTarray) {
 			// the value of the bit in the row number determines if the output offset is up or down
 			cross_bit_value_out = r & cross_distance_out
 			
-			// these are the output channel ID
+			// these are the output channel IDs for the A and B channels 
 			if (cross_bit_value_out == 0) {
 				cross_row_output = r + cross_distance_out
-				a_channel_out_id = r
-				b_channel_out_id = cross_row_output
+				channel1_out_id = r
+				channel2_out_id = cross_row_output
+
+				channel1_out = fft.a_channels[c][int(channel1_out_id)]
+				channel2_out = fft.a_channels[c][int(channel2_out_id)]
+				
 			} else {
 				cross_row_output = r - cross_distance_out
-				a_channel_out_id = r
-				b_channel_out_id = cross_row_output 
+				channel1_out_id = cross_row_output 
+				channel2_out_id = r
+
+				channel1_out = fft.b_channels[c][int(channel1_out_id)]
+				channel2_out = fft.b_channels[c][int(channel2_out_id)]
 			}
 
-			a_channel_out = fft.a_channels[c][int(a_channel_out_id)]
-			b_channel_out = fft.b_channels[c][int(b_channel_out_id)]
 
-			fmt.Printf("iteration %d:%d a_in: %p b_in: %p a_out: %p b_out: %p \n",c,r,a_channel_in,b_channel_in,a_channel_out,b_channel_out)
-			twiddle = compute_twiddle_factor(c,r)
+			fmt.Printf("iteration %d:%d a_in: %p b_in: %p a_out: %p b_out: %p \n",c,r,channel1_in,channel2_in,channel1_out,channel2_out)
 			
 			// logic to set the output nodes 
-			if (c == 0) {  // the first layer needs input nodes 
-				a_channel_in = fft.a_channels[c][int(r)]
-				b_channel_in = fft.b_channels[c][int(r)]				
-				go input_node(r,fft.input_channels[r],a_channel_out,b_channel_out,fft.cntl_channels[FFT_LOG][r]);
-				fmt.Printf("Input-Node (%d) out chan are A(%d:%d) and B(%d:%d) \n",r,c,a_channel_out_id,c,b_channel_out_id)
-			} else { // compute layers 
-				a_channel_in = fft.a_channels[c-1][int(r)]
-				b_channel_in = fft.b_channels[c-1][int(r)]
-				go compute_node(c-1,r,a_channel_in,b_channel_in,a_channel_out,b_channel_out,twiddle,fft.cntl_channels[c][r])
-				fmt.Printf("Chan-Node (%d:%d) Out: a is a_channel (%d:%d) b b_channel (%d:%d) \n",c-1,r,c,a_channel_out_id,c,b_channel_out_id)
+			if (c == 0) {  // the first layer needs input nodes
+
+				
+				go input_node(r,fft.input_channels[r],channel1_out,channel2_out,fft.cntl_channels[FFT_LOG][r]);
+				fmt.Printf("Input-Node (%d) out chan are A(%d:%d) and B(%d:%d) \n",r,c,channel1_out_id,c,channel2_out_id)
+			} else { // compute layers
+				twiddle = compute_twiddle_factor(c-1,r)
+
+				channel1_in = fft.a_channels[c-1][int(r)]
+				channel2_in = fft.b_channels[c-1][int(r)]
+				fmt.Printf("Chan-Node (%d:%d) Out: a is channel1_ (%d:%d) b channel2 (%d:%d) twiddle %.3f \n",c-1,r,c,channel1_out_id,c,channel2_out_id,twiddle)
+				go compute_node(c-1,r,channel1_in,channel2_in,channel1_out,channel2_out,twiddle,fft.cntl_channels[c][r])
+
 			}
 			// last layer needs output nodes 
 			if (c == (FFT_LOG-1)) {
-				a_channel_in = fft.a_channels[c][int(r)]
-				b_channel_in = fft.b_channels[c][int(r)]				
-				go compute_node(c,r,a_channel_in,b_channel_in,fft.output_channels[r],nil,twiddle,fft.cntl_channels[c][r])
+				twiddle = compute_twiddle_factor(c,r)
+				channel1_in = fft.a_channels[c][int(r)]
+				channel2_in = fft.b_channels[c][int(r)]				
+				go compute_node(c,r,channel1_in,channel2_in,fft.output_channels[r],nil,twiddle,fft.cntl_channels[c][r])
 				fmt.Printf("Chan-Output (%d:%d) In: %d %d \n",c,r,c,r)
 			}
 		}
