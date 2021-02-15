@@ -59,7 +59,7 @@ type FFTarray struct {
 	a_channels [FFT_LOG][FFT_VSIZE]   chan complex128;  // straigt across edges/links
 	b_channels [FFT_LOG][FFT_VSIZE] chan complex128;  // b_channel edges/links
 	output_channels [FFT_VSIZE]         chan complex128;  // output links
-	cntl_channels  [FFT_LOG+1][FFT_VSIZE] chan uint8; // gorouting control for all nodes 
+	cntl_channels  [FFT_LOG1][FFT_VSIZE] chan uint8; // gorouting control for all nodes 
 }
 
 /* inp as a numbits number and bitreverses it. 
@@ -185,7 +185,7 @@ func compute_node(col uint32,row uint32, in1 chan complex128, in2 chan complex12
 // set debugging, 1 is on, 0 is off 
 func message_all(fft *FFTarray, message uint8) {
 	var c, r int ;  // column and row 
-	for c = 0; c <= int(FFT_LOG) ; c++ {   // we have a log(fftsize) columns
+	for c = 0; c < int(FFT_LOG1) ; c++ {   // we have a log(fftsize) columns
  		for r = 0; r < int(FFT_VSIZE) ; r++ {  // vector size rows 
 			fft.cntl_channels[c][r] <- message;
 		}
@@ -220,7 +220,7 @@ func create_fft_array(fft *FFTarray) {
 			fft.b_channels[c][r]= make(chan complex128);
 			fft.cntl_channels[c][r] = make(chan uint8, 1);
 		}
-		fft.cntl_channels[FFT_LOG][r] = make(chan uint8, 1); // for the input splitter channels 
+		fft.cntl_channels[FFT_LOG1][r] = make(chan uint8, 1); // for the input split channels 
 	}
 
 	// this is the code that creates the butterfly using go routines and  channels 
@@ -271,7 +271,7 @@ func create_fft_array(fft *FFTarray) {
 			// logic to set the output nodes 
 			if (c == 0) {  // the first layer needs input nodes
 				reversed = bitrev(int(r),int(FFT_LOG));				
-				go input_node(r,fft.input_channels[reversed],channel1_out,channel2_out,fft.cntl_channels[FFT_LOG][r]);
+				go input_node(r,fft.input_channels[reversed],channel1_out,channel2_out,fft.cntl_channels[FFT_LOG1][r]);
 			} else { // compute layers
 				twiddle = compute_twiddle_factor(c-1,r)
 				channel1_in = fft.a_channels[c-1][int(r)]
@@ -341,6 +341,7 @@ func main() {
 		fft.input_channels[i] <- complex(signal[i], 0.0) ; 
 	}
 	read_outputs(fft);
+	message_all(fft,DEBUG_OFF)
 	
 	tsc := gotsc.TSCOverhead()
 	start := gotsc.BenchStart()
