@@ -38,9 +38,10 @@ import ("fmt");
 import ("math");
 import ("runtime");
 import ("flag");
+import ("time");
 import ("github.com/dterei/gotsc");
 
-const FFT_LOG uint32 = 4 ;  // log of the number of inputs/outputs
+const FFT_LOG uint32 = 16 ;  // log of the number of inputs/outputs
 const FFT_LOG1 uint32 = (FFT_LOG+1)  // the nubmber of stages/columns of the FFT with the input column
 const FFT_VSIZE uint32 = (1<<FFT_LOG) ;  // size of the input vector 
 const FFT_NODES uint32 = (FFT_VSIZE * (FFT_LOG + 1) )  ; // number of nodes
@@ -287,78 +288,93 @@ func create_fft_array(fft *FFTarray) {
 	}; // end for compute nodes
 }
 
-func read_outputs(fft *FFTarray,number int,printIt bool) {
-	var i int ; 
+func write_inputs(fft *FFTarray,iterations int,printIt bool) {
+	var i,d int ; 
 	var value complex128;
 
-	for i =0; i< number; i++ {
-		for i, _ := range fft.output_channels {
-			value = <- fft.output_channels[i] ;
+	for i =0; i< iterations; i++ {
+		for j, _ := range fft.output_channels {
+			d = j & 0xF
+			if ((j&11) == 0) {
+				value = complex(float64(d),float64(d))
+			} else {
+				value = complex(float64(d),-1.0*float64(d))				
+			}
+			fft.input_channels[j] <- value ;
 			if printIt {
-				fmt.Printf("output: %d got val %.3f \n",i,value);
+				fmt.Printf("input: sent %d val %.3f \n",j,value);
 			}
 		}
 	}
 }
 
+func read_outputs(fft *FFTarray,iterations int,printIt bool,done chan bool) {
+	var i int ; 
+	var value complex128;
+
+	for i =0; i< iterations; i++ {
+		for j, _ := range fft.output_channels {
+			value = <- fft.output_channels[j] ;
+			if printIt {
+				fmt.Printf("output: %d got val %.3f \n",i,value);
+			}
+		}
+	}
+	done <- true;
+}
+
 func main() {
 	var fft *FFTarray;
-	var signal[FFT_VSIZE] float64 ;
-	var i, j int;
-	var t float64 ;
 	var goProcsFlag_p *int
-	var procsFlag int
-
+	var debugFlag_p *bool
+	var iterations_p *int
 	
+	var procsFlag int
+	var debugFlag bool
+	var iterations int
+	var lapsed_nano int64
+	var doneChan chan bool
+	var done bool 
+	
+	debugFlag_p = flag.Bool("d",false,"enable debugging")	
 	goProcsFlag_p = flag.Int("p",1,"set GOMAXPROCS")
+	iterations_p = flag.Int("i",1,"set iterations")
 	flag.Parse()
 	
 	procsFlag = *goProcsFlag_p;
+	debugFlag = *debugFlag_p;
+	iterations = *iterations_p;
 	
 	// get the maximum number of go processes to use from the arguments
 	runtime.GOMAXPROCS(procsFlag)
 	
 	fft = new(FFTarray); 
 	create_fft_array(fft);
-
-	// test the FFT by sending in some signals and make sure we get the
-	// right values in the frequency domain
-	// Make a square wave 
-	for i =0; int(i) < len(signal) ; i++  {
-		j = int(math.Floor(float64(i/2))) % 2
-		if (j == 0) { 
-			t = float64(1.0000);
-		} else {
-			t = float64(0.0000);
-		}
-		signal[i] = t;
+	doneChan = make(chan bool,1)
+	
+	if (debugFlag == true) { 
+		message_all(fft,DEBUG_ON)
 	}
 
-	// for i =0; i < len(signal) ; i++  {
-	// 	fmt.Printf("signal[%d] is %.3f\n",i,signal[i]);		
-	// 	fft.input_channels[i] <- complex(signal[i], 0.0) ; 
-	// }
-	// read_outputs(fft);
-
-	message_all(fft,DEBUG_ON)
-	for i =0; i < len(signal) ; i++  {
-		fft.input_channels[i] <- complex(signal[i]+1.0, 0.0) ; 
-	}
-	read_outputs(fft, 1,false);
-	message_all(fft,DEBUG_OFF)
-
+	// warm up
+	write_inputs(fft,1,false);
+	read_outputs(fft, 1,false,doneChan);
+	done = <- doneChan
+	
+	start_time := time.Now().UnixNano()
 	tsc := gotsc.TSCOverhead()
 	start := gotsc.BenchStart()
-	for i =0; i < len(signal) ; i++  {
-		fft.input_channels[i] <- complex(signal[i], 0.0) ; 
-	}
+	go read_outputs(fft,iterations,false,doneChan) 
+	go write_inputs(fft,iterations,false);
+	done = <- doneChan
+	
 	end := gotsc.BenchEnd()
-	read_outputs(fft,1,false);
+	end_time := time.Now().UnixNano()
 
+	lapsed_nano = int64(end_time) - int64(start_time)
 	avg := (end - start - tsc)
 	//fmt.Println("TSC Overhead:", tsc)
 	//fmt.Println("Cycles:", avg)
-	fmt.Printf("%d,%d,%d \n",FFT_VSIZE,procsFlag,avg);
-
+	fmt.Printf("%d,%d,%d,%d,%d,%t\n",FFT_VSIZE,iterations,procsFlag,avg,lapsed_nano,done);
 }
 
