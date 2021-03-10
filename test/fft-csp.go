@@ -39,6 +39,7 @@ import ("math");
 import ("runtime");
 import ("flag");
 import ("time");
+import ("os") ; 
 import ("github.com/dterei/gotsc");
 
 const FFT_LOG uint32 = 16 ;  // log of the number of inputs/outputs
@@ -328,6 +329,7 @@ func main() {
 	var goProcsFlag_p *int
 	var debugFlag_p *bool
 	var iterations_p *int
+	var i,j,k int32; 
 	
 	var procsFlag int
 	var debugFlag bool
@@ -340,6 +342,16 @@ func main() {
 	goProcsFlag_p = flag.Int("p",1,"set GOMAXPROCS")
 	iterations_p = flag.Int("i",1,"set iterations")
 	flag.Parse()
+
+	i = 0x1<<28;
+	j = 0x1<<29;
+
+	k = i  * j;
+
+	fmt.Printf("i is %d j is %d k is %d \n",i,j,k); 
+	if (1==1) {
+		os.Exit(-1)
+	}
 	
 	procsFlag = *goProcsFlag_p;
 	debugFlag = *debugFlag_p;

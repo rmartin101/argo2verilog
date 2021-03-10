@@ -434,7 +434,7 @@ type argoListener struct {
 	nextCfgID int                    // IDs for the control flow nodes 
 	root *ParseNode                  // root of an absract syntax tree 
 	ParseNodeList []*ParseNode        // list of nodes of an absract syntax tree, root has id = 0 
-	varNodeList []*VariableNode       // list of all variables in the program
+	varNodeList []*VariableNode       // The symbol table -- a list of all variables in the program. 
 	funcNodeList  []*FunctionNode     // list of functions
 	funcNameMap map[string]*FunctionNode  //  maps the names of the functions to the function node 
 	statementGraph   []*StatementNode   // list of statement nodes.
@@ -1866,12 +1866,12 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 			} else {
 				if (subNode.ruleType == "declaration") {
 					varDeclList = l.getParseVariables(subNode.children[0])
-					fmt.Printf("got a declaration %d %d \n",subNode.id,len(varDeclList))
+					// fmt.Printf("got a declaration %d %d \n",subNode.id,len(varDeclList))
 					
 				} else if (subNode.ruleType == "shortVarDecl")  {
 					varDeclList = l.getParseVariables(subNode)
-					fmt.Printf("got other declaration %d %d \n",subNode.id,len(varDeclList))
-				}
+					//fmt.Printf("got other declaration %d %d \n",subNode.id,len(varDeclList))
+			}
 
 				continue;
 
@@ -1982,7 +1982,7 @@ func (l *argoListener) getListOfStatements(listnode *ParseNode,parentStmt *State
 		// add variables to the scope for this statement
 		// only adds statements with a var keyword in front. 
 		for _, vNode := range(varDeclList) {
-			fmt.Printf("stmt: %d adding declaration var %s \n",stateNode.id,vNode.sourceName)
+			//fmt.Printf("stmt: %d adding declaration var %s \n",stateNode.id,vNode.sourceName)
 			// find the variable name in the global list of vatiables.
 			stateNode.vScope.varNameMap[vNode.sourceName] = vNode
 			// once the node is added, clear the list from the loop
@@ -2535,13 +2535,13 @@ func (l *argoListener) generateNewScope(stmt *StatementNode) {
 	var pNode *ParseNode
 
 	pNode = stmt.parseSubDef
-	fmt.Printf("  Generate New Scope called stmt %d parse %d \n",stmt.id,pNode.id)
+	// fmt.Printf("  Generate New Scope called stmt %d parse %d \n",stmt.id,pNode.id)
 	
 	// match the variable to this parse node 
 	for _, vNode := range l.varNodeList {
-		fmt.Printf(" parsedef is %d \n",vNode.parseDef.id)
+		// fmt.Printf(" parsedef is %d \n",vNode.parseDef.id)
 		if (vNode.parseDef.id == pNode.id) {
-			fmt.Printf("matched short var decl stmt %d\n",stmt.id)
+			// fmt.Printf("matched short var decl stmt %d\n",stmt.id)
 			stmt.vScope.varNameMap[vNode.sourceName] = vNode
 			stmt.vScope.id++;
 		}
@@ -2576,7 +2576,7 @@ func (l *argoListener) fixVarScopesRoot(stmt *StatementNode,pScope *VarScope)  {
 	*stmt.vScope = *pScope  // make the copy
 	stmt.vScope.id = saveId        // save the id
 	
-	fmt.Printf("fixVarScopes copying from %d to %d \n",pScope.id,stmt.id)
+	// fmt.Printf("fixVarScopes copying from %d to %d \n",pScope.id,stmt.id)
 
 
 	// find and replace any short var declarations in the scope rules for the statements
@@ -4162,7 +4162,10 @@ func main() {
 	parsedProgram.getAllVariables()  // must call get all variables first 
 	parsedProgram.getAllFunctions()  // then get all functions 
 	parsedProgram.getStatementGraph()  // now make the statementgraph
-	parsedProgram.fixVariableScopes() // fix the scoping rules to allow for short var decls 
+
+	// adding technical debit 
+	// FIXME need to add this back in to fix the scoping rules ... later
+	// parsedProgram.fixVariableScopes()  fix the scoping rules to allow for short var decls
 	parsedProgram.getControlFlowGraph()  // now make the statementgraph
 
 	
