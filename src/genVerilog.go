@@ -27,6 +27,60 @@ import (
 	"regexp"
 )
 
+// output a very simple test-bench program that starts main
+// with no parameters 
+func OutputTestBench(parsedProgram *argoListener, max_cycles int) {
+	var out *os.File
+	out = parsedProgram.outputFile
+
+	fmt.Fprintf(out,"module generic_bench(); \n")
+
+	fmt.Fprintf(out," \t parameter MAX_CYCLES = %d\n",max_cycles)
+	fmt.Fprintf(out," \t reg clk;  // clock \n")
+	fmt.Fprintf(out," \t reg rst;   // reset\n")
+	fmt.Fprintf(out," \t reg start;  // start the main program 	\n")
+	fmt.Fprintf(out," \t reg [31:0]  cycle_count;\n")
+	fmt.Fprintf(out," \n")	
+	fmt.Fprintf(out," \t main MAIN (\n")
+	fmt.Fprintf(out," \t \t .clock(clk),\n")
+	fmt.Fprintf(out," \t \t .rst(rst)\n")
+	fmt.Fprintf(out," \t \t .start(start)\n")
+	fmt.Fprintf(out," \t );\n")
+	fmt.Fprintf(out," \n")	
+	fmt.Fprintf(out," \t initial begin\n")
+	fmt.Fprintf(out," \t \t clk = 0;  // force both reset and clock low \n")
+	fmt.Fprintf(out," \t \t rst = 0; \n")
+	fmt.Fprintf(out," \t \t #1; \n")
+	fmt.Fprintf(out," \t \t rst = 1;  // pull reset and clock high, which generates a posedge clock and reset \n")
+	fmt.Fprintf(out," \t \t clk = 1; \n")
+	fmt.Fprintf(out," \t \t #1; \n")
+	fmt.Fprintf(out," \t \t rst = 0;  // pull reset and clock low, then let clock run \n")
+	fmt.Fprintf(out," \t \t clk = 0; \n")
+	fmt.Fprintf(out," \t \t #1; \n")
+	fmt.Fprintf(out," \t \t start = 1; // start the main function \n")
+	fmt.Fprintf(out," \t end // initial \n")
+	fmt.Fprintf(out," \n")	
+	fmt.Fprintf(out," \t /* clock control for the test bench */   \n")
+	fmt.Fprintf(out," \t always begin \n")
+	fmt.Fprintf(out," \t \t #1 clk = !clk ; \n")
+	fmt.Fprintf(out," \t end \n")
+	fmt.Fprintf(out," \n")	
+	fmt.Fprintf(out," \t /* clock to end the simulation if we go too far  */ \n")
+	fmt.Fprintf(out," \t always @(posedge clk) begin \n")
+	fmt.Fprintf(out," \t \t if ( rst == 1 )  begin \n")
+	fmt.Fprintf(out," \t \t \t cycle_count <= 0; \n")
+	fmt.Fprintf(out," \t \t end else begin \n")
+	fmt.Fprintf(out," \t \t \t if (cycle_count > MAX_CYCLES) begin \n")
+	fmt.Fprintf(out," \t \t \t \t $finish(); \n")
+	fmt.Fprintf(out," \t \t \t end else begin \n")
+	fmt.Fprintf(out," \t \t \t \t cycle_count <= cycle_count + 1 ; \n")
+	fmt.Fprintf(out," \t \t \t end \n")
+	fmt.Fprintf(out," \t \t end \n")
+	fmt.Fprintf(out," \t end \n")
+	fmt.Fprintf(out," \n")	
+	fmt.Fprintf(out,"endmodule // generic_bench   \n")
+}
+
 /* ***************************************************** */
 func OutputVariables(parsedProgram *argoListener,funcName string) {
 
@@ -362,13 +416,17 @@ func OutputCycleCounter(out *os.File,funcName string) {
 	fmt.Fprintf(out," \t end \n")
 }
 
-func OutputVerilog(parsedProgram *argoListener) {
+func OutputVerilog(parsedProgram *argoListener,genTestBench bool,max_cycles int) {
 	var out *os.File
 	var funcNode *FunctionNode
 	var funcName string
 	
 	// out := parsedProgram.outputFile
 	out = parsedProgram.outputFile 
+
+	if (genTestBench)  {
+		OutputTestBench(parsedProgram,max_cycles)
+	}
 
 	// each Go function maps to a verilog Module 
 	for _, funcNode = range parsedProgram.funcNodeList {
@@ -387,7 +445,7 @@ func OutputVerilog(parsedProgram *argoListener) {
 		OutputVariables(parsedProgram,funcName)
 
 		//OutputInitialization(parsedProgram)
-		
+
 		OutputIO(parsedProgram,funcName)
 		
 		OutputDataflow(parsedProgram,funcName)

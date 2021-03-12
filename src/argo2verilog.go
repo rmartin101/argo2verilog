@@ -4112,10 +4112,15 @@ func main() {
 	var parsedProgram *argoListener 
 	var inputFileName_p,outputFileName_p *string
 	var printASTasGraphViz_p,printASTasText_p,printVarNames_p,printFuncNames_p,printStmtGraph_p,parseCheck_p,printScopes_p *bool
+	var genNoTestBench_p *bool // verilog test bench and max cycles
+	var genMaxCycles_p *int
+	
 	var printStmtGraphGV_p *bool
 	var printCntlGraph_p *bool
 	var debugFlags   uint64
 	var debugFlags_p *string 
+	var genTestBench bool
+	var max_cycles int     // the maximum verilog cycles 
 	
 	inputFileName_p = nil
 	outputFileName_p = nil
@@ -4130,6 +4135,9 @@ func main() {
 	printFuncNames_p = flag.Bool("func",false,"print all functions")
 	printCntlGraph_p = flag.Bool("cntl",false,"print the control-flow graph")
 	printScopes_p = flag.Bool("scope",false,"print variable scopes")
+	genNoTestBench_p   = flag.Bool("nobench",false,"do not generate a test bench")
+	genMaxCycles_p   = flag.Int("maxCy",2000,"maxium Verilog cycles")
+	
 	parseCheck_p     = flag.Bool("check",false,"check for correct syntax ")
 
 	debugFlags_p     = flag.String("dbg","","debug flags 1=verilog control ")
@@ -4205,6 +4213,23 @@ func main() {
 		parsedProgram.printVarScopes()
 		
 	}
+
+	if (*genNoTestBench_p) {
+		genTestBench = false 
+	} else {
+		genTestBench = true
+	}
+	
+	if (genMaxCycles_p != nil)  {
+		max_cycles = *genMaxCycles_p   
+	} else {
+		max_cycles = 2000		
+	}
+	
+	if (*parseCheck_p) {
+		// fmt.Printf("parse check completed \n")
+	} 
+
 	
 	if (*parseCheck_p) {
 		// fmt.Printf("parse check completed \n")
@@ -4226,6 +4251,6 @@ func main() {
 			w = file
 		}
 		parsedProgram.outputFile = w
-		OutputVerilog(parsedProgram);
+		OutputVerilog(parsedProgram,genTestBench,max_cycles);
 	}
 }
