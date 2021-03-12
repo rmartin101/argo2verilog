@@ -35,15 +35,15 @@ func OutputTestBench(parsedProgram *argoListener, max_cycles int) {
 
 	fmt.Fprintf(out,"module generic_bench(); \n")
 
-	fmt.Fprintf(out," \t parameter MAX_CYCLES = %d\n",max_cycles)
+	fmt.Fprintf(out," \t parameter MAX_CYCLES = %d; \n",max_cycles)
 	fmt.Fprintf(out," \t reg clk;  // clock \n")
 	fmt.Fprintf(out," \t reg rst;   // reset\n")
 	fmt.Fprintf(out," \t reg start;  // start the main program 	\n")
 	fmt.Fprintf(out," \t reg [31:0]  cycle_count;\n")
 	fmt.Fprintf(out," \n")	
 	fmt.Fprintf(out," \t main MAIN (\n")
-	fmt.Fprintf(out," \t \t .clock(clk),\n")
-	fmt.Fprintf(out," \t \t .rst(rst)\n")
+	fmt.Fprintf(out," \t \t .clock(clk), \n")
+	fmt.Fprintf(out," \t \t .rst(rst), \n")
 	fmt.Fprintf(out," \t \t .start(start)\n")
 	fmt.Fprintf(out," \t );\n")
 	fmt.Fprintf(out," \n")	
@@ -86,9 +86,24 @@ func OutputVariables(parsedProgram *argoListener,funcName string) {
 
 	// variable seciion 
 	var out *os.File
+	var numVnodes int
+	
 	out = parsedProgram.outputFile
 	fmt.Fprintf(out,"// -------- Variable Section  ----------\n")
-	fmt.Fprintf(out,"// --- User Variables ---- \n ")	
+	fmt.Fprintf(out,"// --- User Variables ---- \n ")
+
+	// count the number of nodes, if zero, do not output anything
+	// FIXME: add count by function module name
+	numVnodes = 0
+	for _, vNode := range(parsedProgram.varNodeList) {
+		if (vNode.funcName == funcName) {
+			numVnodes ++ ;
+		}
+	}
+	if (numVnodes == 0) {
+		return; 
+	}
+	
 	for _, vNode := range(parsedProgram.varNodeList) {
 
 		// only print out variables names that match the current function 
@@ -149,10 +164,32 @@ func OutputIO(parsedProgram *argoListener,funcName string) {
 	var stmt *StatementNode
 	var pNode *ParseNode
 	var sourceCode string
-
+	var numCnodes int
+	
 	out = parsedProgram.outputFile
 	
 	fmt.Fprintf(out,"// -------- I/O Section  ---------- \n")
+
+
+	// count the number of printf nodes, if zero, do not output anything
+	// FIXME: add count by function module name
+	numCnodes = 0
+	for _, cNode := range(parsedProgram.controlFlowGraph) {
+		if (cNode.statement.funcName == funcName) {
+			if (cNode.cfgType == "expression" ) {
+				stmt = cNode.statement
+				pNode = stmt.parseDef
+				sourceCode = pNode.sourceCode
+				if strings.Contains(sourceCode,"fmt.Printf") {
+					numCnodes ++ ;
+				}
+			}
+		}
+	}
+	if (numCnodes == 0) {
+		return; 
+	}
+	
 	fmt.Fprintf(out,"always @(posedge clock) begin \n")
 	
 	for _, cNode := range(parsedProgram.controlFlowGraph) {
@@ -218,7 +255,6 @@ func OutputDataflow(parsedProgram *argoListener,funcName string) {
 
 				// Fixme: Need to parse the expression and get the readvars
 				sourceCode = strings.Replace(sourceCode,"=","<=",1)
-			
 				
 				if i == 0 {
 					fmt.Fprintf(out," \t \t if ( %s == 1 ) begin \n", cNode.cannName);
@@ -267,20 +303,23 @@ func OutputControlFlow(parsedProgram *argoListener,funcName string) {
 
 	for i, cNode := range(parsedProgram.controlFlowGraph) {
 
-		if (cNode.statement.funcName == funcName) { 
-			// The start node gets its own clause 
-			if (i == 0 ) {
-				fmt.Fprintf(out,"always @(posedge clock) begin // control for %s \n",cNode.cannName)
-				fmt.Fprintf(out,"\t if `RESET begin \n ")
-				fmt.Fprintf(out,"\t \t %s <= 1 ; \n ", cNode.cannName)
-				fmt.Fprintf(out,"\t end else begin \n ")
-				fmt.Fprintf(out," \t \t " + cNode.cannName + " <=  0 ; \n")
-				fmt.Fprintf(out," \t end \n ")				
-				fmt.Fprintf(out,"end \n")
-				continue
-			}
-
-
+		// The start node gets its own clause 
+		if (i == 0 ) && (funcName == "main") {
+			fmt.Fprintf(out,"\t always @(posedge clock) begin // control for %s \n",cNode.cannName)
+			fmt.Fprintf(out,"\t \t if `RESET begin \n ")
+			fmt.Fprintf(out,"\t \t \t %s <= 0 ; \n ", cNode.cannName)
+			fmt.Fprintf(out,"\t \t end \n ")
+			fmt.Fprintf(out,"\t \t else if (start == 1) begin \n ")
+			fmt.Fprintf(out,"\t \t \t " + cNode.cannName + " <=  1 ; \n")
+			fmt.Fprintf(out,"\t \t end \n ")						
+			fmt.Fprintf(out,"\t \t else begin\n ")			
+			fmt.Fprintf(out,"\t \t \t "  + cNode.cannName + " <=  0 ; \n")
+			fmt.Fprintf(out,"\t \t end \n ")
+			fmt.Fprintf(out,"\t end \n ")				
+			continue
+		}
+		
+		if (cNode.statement.funcName == funcName) {
 			entryClauses = make([]string,0) 
 			allClauses = ""
 			cName = cNode.cannName 
