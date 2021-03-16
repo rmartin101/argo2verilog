@@ -21,7 +21,6 @@ func main() {
 	
 	// if with an else 
 	if  (k >= (i + 3)) {
-		var i int;
 		i = 4;
 		k = i + i;
 		fmt.Printf("K is: %d \n", k) ;
