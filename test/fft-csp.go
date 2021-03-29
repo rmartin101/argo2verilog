@@ -64,7 +64,7 @@ type FFTarray struct {
 	cntl_channels  [FFT_LOG1][FFT_VSIZE] chan uint8; // gorouting control for all nodes 
 }
 
-/* inp as a numbits number and bitreverses it. 
+/* inp as a numbits number and bit-reverses it. 
  * inp < 2^(numbits) for meaningful bit-reversal
  */ 
 func bitrev(inp, numbits int) int {
@@ -127,10 +127,8 @@ func input_node(row uint32, in chan complex128, out1 chan complex128, out2 chan 
 				debug = 0;
 			default:
 				fmt.Printf("----input node (%d) unknown message type %d \n",row,msg)
-			}
-
-		}
-		
+			} ;
+		};
 	};
 };
 
@@ -156,7 +154,7 @@ func compute_node(col uint32,row uint32, in1 chan complex128, in2 chan complex12
 
 			if (debug == 1) {
 				fmt.Printf("----compute node (%d:%d) inputs %.3f + %.3f * %.3f = %.3f \n",col,row,a,Wn,b,value)
-			}
+			} ;
 			out1 <- value;    // write the outputs
 			if (col < (FFT_LOG-1)) { // last column only has 1 output channel 
 				out2 <- value;
@@ -188,10 +186,10 @@ func message_all(fft *FFTarray, message uint8) {
 			fmt.Printf("sending message 0x%x to (%d:%d) \n",message,c,r)
 			fft.cntl_channels[c][r] <- message;
 
-		}
-	}
+		} ;
+	}; 
 	
-}
+}; 
 func create_fft_array(fft *FFTarray) {
 	const FFT_CHANNELS uint32 = (FFT_NODES *2) + (FFT_VSIZE*2)
 	var r,c uint32; // the current column of row of the node to create
@@ -221,7 +219,7 @@ func create_fft_array(fft *FFTarray) {
 			fft.cntl_channels[c][r] = make(chan uint8);
 		}
 		fft.cntl_channels[FFT_LOG][r] = make(chan uint8); // for the input split channels 
-	}
+	} ;
 
 	// this is the code that creates the butterfly using go routines and  channels 
 	// recall an N-input FFT butterfly has log N levels
@@ -297,17 +295,17 @@ func write_inputs(fft *FFTarray,iterations int,printIt bool) {
 		for j, _ := range fft.output_channels {
 			d = j & 0xF
 			if ((j&11) == 0) {
-				value = complex(float64(d),float64(d))
+				value = complex(float64(d),float64(d)) ;
 			} else {
-				value = complex(float64(d),-1.0*float64(d))				
-			}
+				value = complex(float64(d),-1.0*float64(d)); 
+			} ;
 			fft.input_channels[j] <- value ;
 			if printIt {
 				fmt.Printf("input: sent %d val %.3f \n",j,value);
-			}
-		}
-	}
-}
+			} ;
+		}; 
+	} ; 
+}; 
 
 func read_outputs(fft *FFTarray,iterations int,printIt bool,done chan bool) {
 	var i int ; 
@@ -318,39 +316,32 @@ func read_outputs(fft *FFTarray,iterations int,printIt bool,done chan bool) {
 			value = <- fft.output_channels[j] ;
 			if printIt {
 				fmt.Printf("output: %d got val %.3f \n",i,value);
-			}
-		}
-	}
+			} ;
+		} ;
+	}  ;
 	done <- true;
 }
 
 func main() {
-	var fft *FFTarray;
-	var goProcsFlag_p *int
-	var debugFlag_p *bool
-	var iterations_p *int
-	var i,j,k int32; 
+	var fft *FFTarray;       // holds the array of channels 
+	var goProcsFlag_p *int ; // flag pointer to set number of procs 
+	var debugFlag_p *bool ;  // debug flag pointer   
+	var iterations_p *int;   // number of iterations to warm up the cache 
 	
-	var procsFlag int
-	var debugFlag bool
-	var iterations int
-	var lapsed_nano int64
-	var doneChan chan bool
-	var done bool 
+	var procsFlag int ;     // nunber of goprocs 
+	var debugFlag bool ;    
+	var iterations int ;
+	var lapsed_nano int64 ;
+	var doneChan chan bool ;
+	var done bool ; 
 	
-	debugFlag_p = flag.Bool("d",false,"enable debugging")	
-	goProcsFlag_p = flag.Int("p",1,"set GOMAXPROCS")
-	iterations_p = flag.Int("i",1,"set iterations")
-	flag.Parse()
+	debugFlag_p = flag.Bool("d",false,"enable debugging") ; 
+	goProcsFlag_p = flag.Int("p",1,"set GOMAXPROCS") ; 
+	iterations_p = flag.Int("i",1,"set iterations") ; 
+	flag.Parse() ; 
 
-	i = 0x1<<28;
-	j = 0x1<<29;
-
-	k = i  * j;
-
-	fmt.Printf("i is %d j is %d k is %d \n",i,j,k); 
 	if (1==1) {
-		os.Exit(-1)
+		os.Exit(-1); 
 	}
 	
 	procsFlag = *goProcsFlag_p;
@@ -358,35 +349,36 @@ func main() {
 	iterations = *iterations_p;
 	
 	// get the maximum number of go processes to use from the arguments
-	runtime.GOMAXPROCS(procsFlag)
+	runtime.GOMAXPROCS(procsFlag) ; 
 	
 	fft = new(FFTarray); 
 	create_fft_array(fft);
-	doneChan = make(chan bool,1)
-	
+	doneChan = make(chan bool,1) ;
+
+	// send a debugging message to all the channels 
 	if (debugFlag == true) { 
-		message_all(fft,DEBUG_ON)
-	}
+		message_all(fft,DEBUG_ON) ;
+	} ;
 
 	// warm up
 	write_inputs(fft,1,false);
 	read_outputs(fft, 1,false,doneChan);
-	done = <- doneChan
+	done = <- doneChan ; 
 	
-	start_time := time.Now().UnixNano()
-	tsc := gotsc.TSCOverhead()
-	start := gotsc.BenchStart()
-	go read_outputs(fft,iterations,false,doneChan) 
+	start_time := time.Now().UnixNano() ; 
+	tsc := gotsc.TSCOverhead()  ; 
+	start := gotsc.BenchStart() ; 
+	go read_outputs(fft,iterations,false,doneChan)  ; 
 	go write_inputs(fft,iterations,false);
-	done = <- doneChan
+	done = <- doneChan ; 
 	
-	end := gotsc.BenchEnd()
-	end_time := time.Now().UnixNano()
+	end := gotsc.BenchEnd()  ; 
+	end_time := time.Now().UnixNano() ; 
 
-	lapsed_nano = int64(end_time) - int64(start_time)
-	avg := (end - start - tsc)
+	lapsed_nano = int64(end_time) - int64(start_time)  ; 
+	avg := (end - start - tsc) ; 
 	//fmt.Println("TSC Overhead:", tsc)
 	//fmt.Println("Cycles:", avg)
 	fmt.Printf("%d,%d,%d,%d,%d,%t\n",FFT_VSIZE,iterations,procsFlag,avg,lapsed_nano,done);
-}
+} ;
 

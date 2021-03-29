@@ -441,7 +441,8 @@ type argoListener struct {
 	controlFlowGraph []*CfgNode         // list of control flow nodes
 	debugFlags     uint64               // flags for debugging. 1 = verilog control 
 	moduleName    string                // name of the module for Verilog/VHDL
-	outputFile       *os.File            // output file writer
+	outputFile       *os.File           // output file writer
+	debugFile        *os.File           // file for debugging output 
 	
 }
 
@@ -2185,9 +2186,39 @@ func (l *argoListener) addCallandReturnEdges() {
 }
 
 
-// convert the right hand side of an expression to a string 
-func (l *argoListener) rightHandSideStr() {
+// convert an expression to a string
+// walk the parse tree. If there are no children, return the string
+// concatenate all the return strings separated by a space 
+func expressionToString(pNode *ParseNode) string {
+	var returnStr,newStr string ;
+	// if we are a terminal node, just return the ruletype (or sourcecode) 
+	if (len(pNode.children) == 0) {
+		return pNode.ruleType
+	}
+
+	// concatenate all the child strings 
+	returnStr = ""
+	for _, childNode := range(pNode.children) {
+		returnStr = returnStr + expressionToString(childNode) + " "
+	}
+
+	// remove extra spaces.
+	// loop through the string and add a space only if the character is not a space or the
+	// previous character is not a space 
+	for i, c := range returnStr {
+		if c != ' ' {
+			newStr = newStr + string(c);
+		} else {
+			if (i >0) {
+				if returnStr[i-1] != ' ' {
+					newStr = newStr + string(c);
+				}
+			}
+		}
+	}
 	
+	// return the concat of the children 
+	return newStr; 
 }
 	
 // for assignment and short var decls, add the left and right hand sides of the assignment expression
@@ -4115,10 +4146,10 @@ func main() {
 	var genNoTestBench_p *bool // verilog test bench and max cycles
 	var genMaxCycles_p *int
 	
-	var printStmtGraphGV_p *bool
+	var printStmtGraphGV_p *bool 
 	var printCntlGraph_p *bool
 	var debugFlags   uint64
-	var debugFlags_p *string 
+	var debugFlags_p,debugFileName_p *string
 	var genTestBench bool
 	var max_cycles int     // the maximum verilog cycles 
 	
@@ -4141,6 +4172,7 @@ func main() {
 	parseCheck_p     = flag.Bool("check",false,"check for correct syntax ")
 
 	debugFlags_p     = flag.String("dbg","","debug flags 1=verilog control ")
+	debugFileName_p     = flag.String("dbgFile","/dev/stdout","debug output file ")
 	inputFileName_p = flag.String("i","","the input file name")
 	outputFileName_p = flag.String("o","","the output file name")
 
@@ -4161,6 +4193,13 @@ func main() {
 			os.Exit(-1)
 		} else {
 			debugFlags = uint64(d)
+		}
+
+		// if we are debugging, open the filename output 
+		if ( !( *debugFileName_p == "")) {
+			parsedProgram.debugFile, _ = os.OpenFile(*debugFileName_p, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+		} else {
+			parsedProgram.debugFile, _ = os.OpenFile("/dev/stdout", os.O_WRONLY, 0666)
 		}
 	}
 
@@ -4242,7 +4281,7 @@ func main() {
 			w = os.Stdout
 		} else {
 		
-			file, err := os.OpenFile(*outputFileName_p, os.O_WRONLY|os.O_CREATE, 0666)
+			file, err := os.OpenFile(*outputFileName_p, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 			if err != nil {
 				fmt.Printf("Error opening file %s \n ",outputFileName_p)
 				os.Exit(1)
