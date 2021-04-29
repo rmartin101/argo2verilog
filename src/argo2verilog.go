@@ -3469,8 +3469,7 @@ func (l *argoListener) resolveDataflowHazards() {
 	}
 }
 
-
-// top level function to get the control flow graph
+// Top level function to get the control flow graph
 func (l *argoListener) getControlFlowGraph() int {
 
 	// call the forward pass on the control-flow graph 
@@ -3481,6 +3480,11 @@ func (l *argoListener) getControlFlowGraph() int {
 	l.addVarsToCfgNodes()
 	// add delays in the cfg when there are data flow hazards
 	l.resolveDataflowHazards()
+
+	// replace function calls with 
+
+	// replace function calls in expressions
+	
 	return 1 
 }
 

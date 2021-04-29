@@ -25,7 +25,6 @@ func main() {
 	if  (i < j) {
 		fmt.Printf("I is less than J \n") ; 
 	} ;
-
 	
 	// if with an else 
 	if  (k >= (i + 3)) {
@@ -35,7 +34,7 @@ func main() {
 		//  control to blargo
 		//  i  = blargo_retval_0
 		//  j =  blargo_retval_1
-		k,i = blargo(j); 
+		k = blammo(j,k); 
 		fmt.Printf("K is: %d \n", k) ;
 	} else {
 		i = 4;
