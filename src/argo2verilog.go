@@ -94,6 +94,7 @@ func assert(test bool, message string, location string, stackTrace bool) {
 		panic(message)
 	}
 }
+
 // get the file name and line number of the file of this source code for
 // error reporting 
 func _file_line_() string {
@@ -649,13 +650,6 @@ func (node *ParseNode) getArrayDimensions() ([] int) {
 	return dimensions 
 }
 
-// get the map key and value types 
-func (n *ParseNode) getMapKeyValus() (string,int,string,int) {
-	
-	return "",-1,"",-1
-}
-
-
 // get the number of elements in the channel
 // or -1 if no size is found 
 func (node *ParseNode) getChannelDepth() (int) {
@@ -1141,15 +1135,6 @@ func (l *argoListener) getAllVariables() int {
 
 	return 1
 	
-}
-
-
-// given an expression, return the same expression with the variables replaced by
-// one with their canonical global names 
-
-func (l *argoListener) flattenVarsInExpression() string {
-
-	return "1+1"
 }
 
 // Rules for edge dangles:
@@ -2518,7 +2503,7 @@ func (l *argoListener) getStatementGraph() int {
 					lastNode := statements[len(statements)-1]
 					lastNode.addStmtSuccessor(exitNode)
 				} else {
-					fmt.Printf("Warning: Function %s has zero statements",funcStr)
+					fmt.Printf("Warning: Function %s has zero statements \n",funcStr)
 				}
 
 
@@ -3469,6 +3454,15 @@ func (l *argoListener) resolveDataflowHazards() {
 	}
 }
 
+// 
+func (l *argoListener) addCFGcallReturnEdges() {
+
+	//for _, stateNode := range(l.statementGraph) {
+	// 
+	/// }
+
+}
+
 // Top level function to get the control flow graph
 func (l *argoListener) getControlFlowGraph() int {
 
@@ -3478,7 +3472,9 @@ func (l *argoListener) getControlFlowGraph() int {
 	l.fixBackwardCfgEdges() 
 	// link the variable write/reads to the control flow graph nodes 
 	l.addVarsToCfgNodes()
-	// add delays in the cfg when there are data flow hazards
+	// add call and return edges 
+	l.addCFGcallReturnEdges()
+	// add delays in the cfg when there are data flow hazards	
 	l.resolveDataflowHazards()
 
 	// replace function calls with 
@@ -3524,6 +3520,9 @@ func (l *argoListener) printControlFlowGraph() {
 			fmt.Printf("%d ",pt.id)
 		}
 		
+		if (len(node.statement.callTargets) > 0 ) {
+			fmt.Printf(" callto: %d ",node.statement.callTargets[0].id)
+		}
 		
 		fmt.Printf("\n")		
 	}

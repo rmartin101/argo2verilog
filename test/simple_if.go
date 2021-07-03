@@ -39,7 +39,7 @@ func main() {
 		fmt.Printf("End of the chained if \n") ;
 	} ;
 
-	k = i+j;
+	k = i+j ;
 	fmt.Printf("K is %d \n",k) ;
 } ;
 
