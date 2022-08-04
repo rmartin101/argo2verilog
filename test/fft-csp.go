@@ -269,19 +269,19 @@ func create_fft_array(fft *FFTarray) {
 			// logic to set the output nodes 
 			if (c == 0) {  // the first layer needs input nodes
 				reversed = bitrev(int(r),int(FFT_LOG));				
-				go input_node(r,fft.input_channels[reversed],channel1_out,channel2_out,fft.cntl_channels[0][r]);
+				go input_node(r,fft.input_channels[reversed],channel1_out,channel2_out,fft.cntl_channels[0][r]) ;
 			} else { // compute layers
 				twiddle = compute_twiddle_factor(c-1,r)
 				channel1_in = fft.a_channels[c-1][int(r)]
 				channel2_in = fft.b_channels[c-1][int(r)]
-				go compute_node(c-1,r,channel1_in,channel2_in,channel1_out,channel2_out,twiddle,fft.cntl_channels[c][r])
+				go compute_node(c-1,r,channel1_in,channel2_in,channel1_out,channel2_out,twiddle,fft.cntl_channels[c][r]); 
 			}
 			// last layer needs output nodes 
 			if (c == (FFT_LOG-1)) {
 				twiddle = compute_twiddle_factor(c,r)
 				channel1_in = fft.a_channels[c][int(r)]
 				channel2_in = fft.b_channels[c][int(r)]				
-				go compute_node(c,r,channel1_in,channel2_in,fft.output_channels[r],nil,twiddle,fft.cntl_channels[c+1][r])
+				go compute_node(c,r,channel1_in,channel2_in,fft.output_channels[r],nil,twiddle,fft.cntl_channels[c+1][r]) 
 			}
 		}
 	}; // end for compute nodes
