@@ -423,12 +423,13 @@ func create_router_state(router *RouterState) {
 
 func write_inputs(router *RouterState,iterations int,printIt bool) {
 	var i int ; 
-	var value RouterPkt;
+	var inputPkt RouterPkt;
 	for i =0; i< iterations; i++ {
 		for j, _ := range router.output_channels {
-			router.input_channels[j] <- value ;
+			inputPkt.dest_port = uint16((uint32(j) % ROUTER_ISIZE)); 
+			router.input_channels[j] <- inputPkt ;
 			if printIt {
-				fmt.Printf("input: sent %d val %.3f \n",j,value);
+				fmt.Printf("input: sent %d val %s \n",j,inputPkt);
 			} ;
 		}; 
 	} ; 
@@ -437,13 +438,13 @@ func write_inputs(router *RouterState,iterations int,printIt bool) {
 
 func read_outputs(router *RouterState,iterations int,printIt bool,done chan bool) {
 	var i int ; 
-	var value RouterPkt;
+	var outputPkt RouterPkt;
 
 	for i =0; i< iterations; i++ {
 		for j, _ := range router.output_channels {
-			value = <- router.output_channels[j] ;
+			outputPkt = <- router.output_channels[j] ;
 			if printIt {
-				fmt.Printf("output: %d got val %.3f \n",i,value);
+				fmt.Printf("output: %d got val %s\n",i,outputPkt);
 			} ;
 		} ;
 	}  ;
