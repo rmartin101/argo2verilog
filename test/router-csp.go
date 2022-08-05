@@ -1,4 +1,4 @@
-/*  Example program of a randomized butterfly router design for IP packets 
+/*  Example program of a randomized butterfly router design 
  *
     (c) 2022 Richard P. Martin and contributers 
     
@@ -16,11 +16,10 @@
 */
 
 
-/* This code implements randomized butterfly routing using a CSP style of design in Go.
-*  The architecture is to build back-to-back, 2D butterflies. The nodes in the butterfly graph 
-*  are Goroutines and the edges are channels.
-*  
-* Nodes are labeled in column-major order as below, with the bufferfly going from left to right: 
+/* This code implements an randomized butterfly router using a CSP style of design in Go
+*  The program build two back-to-back, 2D butterflies The nodes in the graph are Goroutines and the
+*  edges are channels. Nodes are labeled in column-major order 
+*    
 input I(0)    ->  (0,0)--->(1,0)--->(2,0)--->(3,0)  -->output  X(0)
            \ /  
               ->  (0,1)--->(1,1)--->(2,1)--->(3,1)  -->output  X(1)
@@ -29,185 +28,91 @@ input I(0)    ->  (0,0)--->(1,0)--->(2,0)--->(3,0)  -->output  X(0)
            / \ 
            ->  (0,3)--->(1,3)--->(2,3)--->(3,3)  -->output  X(3)       
 
-* The first column are input nodes. Each input node also has a linear-feedback shift register 
-* node, which is used to create random numbers. 
-* The interior nodes are routing nodes. The last column are output nodes. 
-
-* When a packet arrives, it is assumed to be labed with the output port. 
-* The input node then selects a random path to the end of the first butterfly.
-* The input node then computes the path from the interior node to the correct output node. 
-
 References: 
-Simple Algorithms for Routing on Butterfly Networks with Bounded Queues (Extended Abstract)
-Bruce M. Maggs and Ramesh K. Sitaraman
-"https://users.cs.duke.edu/~bmm/assets/pubs/MaggsS92-STOC.pdf" 
 
 */
 package main;
 import ("fmt"); 
+import ("math");
 import ("runtime");
 import ("flag");
 import ("time");
-import ("os") ;
+import ("os") ; 
 import ("github.com/dterei/gotsc");
 
-// make an array of channels 
-// holds all the sizes of the FTT and channels of the FFT array
-// each node has 2 inputs + 2 outputs, but outputs are shared as inputs
-// except at the edges, which are the length of a vector
-
-
-// an IP version 4 header. Tries to 
-type IPv4hdr struct {
-	Version_Len  uint8       // protocol version, header length (4 bits each) 
-	TOS          uint8       // type-of-service
-	TotalLen     uint16      // packet total length
-	ID           uint16      // packet identification number 
-	Flags_Offset    uint16       // flags (3 bits) and the fragement offset (13 bits) 
-	TTL      uint8       // time-to-live
-	Protocol uint8       // next protocol
-	Checksum uint16      // checksum
-	Src      uint32      // source address
-	Dst      uint32      // destination address
-	// Options  uint32    Options field 
-} ;
-
-type RouterPkt struct {
-	dest_port uint16;    // destination port 
-	path uint32;  // bit-mapped path through the router. 0 is a straight link and 1 is a cross link.
-	header IPv4hdr;    // an IP version 4 header 
-} 
-
-// constants that define the size of router. The router log is the base-2 log of the number of inputs
-const ROUTER_LOG uint32 = 2 ;  // log (base 2) of the number of inputs/outputs
-const ROUTER_LOG1 uint32 = (ROUTER_LOG+1)  // the nubmber of stages/columns of the first butterfly with the input column
-const ROUTER_ISIZE uint32 = (1<<ROUTER_LOG) ;  // number of inputs to the router
-const ROUTER_DEPTH uint32 = ((ROUTER_LOG1) + (ROUTER_LOG)) // depth in number of nodes
-const ROUTER_INPUT_NODES = ( ROUTER_ISIZE )
-const ROUTER_OUTPUT_NODES = ( ROUTER_ISIZE ) 
-const ROUTER_NODES uint32 = ( (ROUTER_ISIZE * (ROUTER_LOG + 1)) + ((ROUTER_ISIZE * ROUTER_LOG)))  ; // total number of nodes
-const ROUTER_RT_NODES = (ROUTER_NODES - (ROUTER_INPUT_NODES + ROUTER_OUTPUT_NODES)) // internal routing nodes 
+const FFT_LOG uint32 = 16 ;  // log of the number of inputs/outputs
+const FFT_LOG1 uint32 = (FFT_LOG+1)  // the nubmber of stages/columns of the FFT with the input column
+const FFT_VSIZE uint32 = (1<<FFT_LOG) ;  // size of the input vector 
+const FFT_NODES uint32 = (FFT_VSIZE * (FFT_LOG + 1) )  ; // number of nodes
 
 const QUIT uint8 = 0xFF ;
 const DEBUG_ON uint8 = 0xDE;
 const DEBUG_OFF uint8 = 0x0D;
 
-type RouterState struct {
-	input_channels [ROUTER_ISIZE]  chan RouterPkt;                  // input channels
-	random_num_channels [ROUTER_ISIZE] chan uint8;                   // for random numbers for the inputs
-	output_channels [ROUTER_ISIZE]         chan RouterPkt;          // output channels
-	straight_channels [ROUTER_DEPTH-1][ROUTER_ISIZE]   chan RouterPkt;  // straigt across edges/links
-	cross_channels [ROUTER_DEPTH-1][ROUTER_ISIZE] chan RouterPkt;       // cross channel edges/links
-	cntl_channels[ROUTER_DEPTH+1][ROUTER_ISIZE] chan uint8;          // gorouting control for all nodes and the lfsr in the extra column.
+// make an array of channels 
+// holds all the sizes of the FTT and channels of the FFT array
+// each node has 2 inputs + 2 outputs, but outputs are shared as inputs
+// except at the edges, which are the length of a vector
+type FFTarray struct {
+	input_channels [FFT_VSIZE]  chan complex128;   // input links
+	shuffle_channels [FFT_VSIZE]  chan complex128;    // shuffle the data accourding to the bit-reversal 
+	a_channels [FFT_LOG][FFT_VSIZE]   chan complex128;  // straigt across edges/links
+	b_channels [FFT_LOG][FFT_VSIZE] chan complex128;  // b_channel edges/links
+	output_channels [FFT_VSIZE]         chan complex128;  // output links
+	cntl_channels  [FFT_LOG1][FFT_VSIZE] chan uint8; // gorouting control for all nodes 
 }
 
-// a linear feedback shift register used for generating a psuedo-random sequence of 0s or 1s .
-// the stream of 0/1s is put on an output channel.
-func lfsr3(row uint32, seed uint16, sequence chan uint8, control chan uint8) {
-	var lfsr uint16;  // the linear feedback shift register
-	var value uint16; 
-	var stop bool;
-	var msg uint8;    // control message 
-	var debug int;
+/* inp as a numbits number and bit-reverses it. 
+ * inp < 2^(numbits) for meaningful bit-reversal
+ */ 
+func bitrev(inp, numbits int) int {
+	var i, rev int;
 
-	debug =1 ;
-	if (debug == 1) {fmt.Printf("%d,0 lfsr node started \n",row) };
+	i=0;
+	rev = 0;
+	for i=0; i < numbits; i++  {
+		rev = (rev << 1) | (inp & 1);
+		inp >>= 1;
+	}
+	return rev;
+}
+
+// for an FFT of size N, get the twiddle factor for a node at column c, row r
+// recall the twiddle factor is the complex number on the unit circle
+// higher levels (columns) break the circle into more parts
+// see the reference 
+func compute_twiddle_factor(col,row uint32) complex128 {
+	var m,N uint32; 
+	var inner float64;
+	var retval complex128;
 	
-	stop = false ;
-	for stop != true {
-		select {
-		case msg = <- control:
-			if (debug ==1) { fmt.Printf("----lfsr3 (%d) control message %d \n",seed,msg) }; 
-			switch msg {
-			case QUIT:
-				if (debug ==1) {fmt.Printf("----lfsr3 node (%d) ending \n",seed,msg)}; 
-				stop = true;
-				return ; 				
-			case DEBUG_ON:
-				debug = 1;
-			case DEBUG_OFF:
-				debug = 0;
-			default:
-				fmt.Printf("----lfsr node (%d) unknown message type %d \n",seed,msg)
-			} ;
-		default: 
-			//shifts
-			lfsr ^= lfsr >> 7 ; // shift 7 bits right
-			lfsr ^= lfsr << 9 ;  // shift 9 bits left
-			lfsr ^= lfsr >> 13 ; // shift 13 bits right
-		
-			//adds last bit to the output channel 
-			value = lfsr & 1 ;
-			if (value == 0) {
-				sequence <- 0;
-			} else { 
-				sequence <- 1; 
-			}
-			runtime.Gosched();  // throw back control to the scheduler 
-		} // end select 
-	} // end for 
+	N = (1<<(col+1));   // factors on the unit circle for a N-node FFT (2^col)-1
+	m = row & (N -1)    // row % N , recall that x modulo y = (x & (y − 1))
+
+	// recall e^-i*2*Pi*m/N = cos(2*Pi*m/N) - i*sin(2*Pi*m/N)
+	inner = 2.0*math.Pi*float64(m)/float64(N) ; // fraction on the unit circle to move 
+	retval = (complex(math.Cos(inner),-1.0*math.Sin(inner))) ; // definition of exponent above
+	return retval;
 }
 
 // the input nodes copy one input to two output at the begining of the FFT
-func input_node(col uint32, row uint32, rand_input chan uint8, in chan RouterPkt, straight chan RouterPkt, cross chan RouterPkt, control chan uint8 ) {
-	var inputPkt RouterPkt;
+func input_node(row uint32, in chan complex128, out1 chan complex128, out2 chan complex128, control chan uint8 ) {
+	var inputVal complex128;
 	var msg uint8;
 	var quit bool;
 	var debug int;
-	var set_bit_position uint16 ;
-	var rand_bit uint16; 
-	var rand_path uint16;
-	var dest_path uint16;
-	var dest_port uint16; 
-	var i int;
 	
-	// starting position of the linear feedback shift register 
-	const my_column = 0;
 	quit = false;
-	debug =1 ;
-	if (debug == 1) {fmt.Printf("%d,%d input node started \n",col,row) };
 	// while quit == false 	
 	for (quit == false) {
 		// poll the control channel
 		select {
-		case inputPkt = <- in:  // read a single input packet
-
-			// create a path to a central node in the butterfly using random bits 
-			rand_path = 0; 
-			for i =0; i< int(ROUTER_LOG); i++ {
-				rand_bit = uint16(<- rand_input);  // get the next bit from the LFSR channel 
-				rand_path = ((rand_bit & 0x1 ) << i) | rand_path;   // add it to the path 
-			}
-			// compute the path from the central node to the output port 
-			dest_port = inputPkt.dest_port; 
-			dest_path = 0;
-
-			// we do a low-order bit by bit comparison between the path and the
-			// destination port. If the bits do not match, take the cross link/channel 
-			// if the bits differ, take the cross link. 
-			for i =0; i< int(ROUTER_LOG); i++ {
-				set_bit_position = (1<<i) ;
-				if (dest_port & set_bit_position) != (rand_path & set_bit_position) {
-					dest_path = dest_path | set_bit_position;
-				}
-			}
-
-			// the full path is the random path followed by the final destination 
-			inputPkt.path = uint32(rand_path)<<16 | uint32(dest_path); 			
-			
+		case inputVal = <- in:  // read a single input
 			if (debug == 1) { 
-				fmt.Printf("----input node (%d) got input %s rand_path %x dest_path %x\n",row,inputPkt,rand_path,dest_path);
+				fmt.Printf("----input node (%d) got input %.3f \n",row,inputVal)
 			}
-			
-			// check the routing bit if the packet goes on the straight or cross channel
-			if ((dest_path & 1) == ( uint16(col) & 1 )) { 
-				cross <- inputPkt;  // copy to the two outputs
-				if (debug == 1) { fmt.Printf("----input node (%d) sent cross \n",row); }
-			} else { 
-				straight <- inputPkt;
-				if (debug == 1) { fmt.Printf("----input node (%d) sent straight \n",row); }
-			}
-			
+			out1 <- inputVal;  // copy to the two outputs 
+			out2 <- inputVal;
 		case msg = <- control:
 			fmt.Printf("----input node (%d) control message %d \n",row,msg)
 			switch msg {
@@ -225,120 +130,70 @@ func input_node(col uint32, row uint32, rand_input chan uint8, in chan RouterPkt
 	};
 };
 
-// a compute node has a 2D address (columns,row), two inputs. two outputs,
+// a compute node has a 2D address (columns,row), two inputs. two outputs, a twiddle factor,
 // and a control channel.
 // A compute node takes 2 inputs and sends the result to the two outputs
 
-func routing_node(col uint32,row uint32, straight_in chan RouterPkt, cross_in chan RouterPkt, straight_out chan RouterPkt, cross_out chan RouterPkt, control chan uint8 ) {
-	var inputPkt RouterPkt;
+func compute_node(col uint32,row uint32, in1 chan complex128, in2 chan complex128, out1 chan complex128, out2 chan complex128, Wn complex128, control chan uint8 ) {
+	var a,b,value complex128;
 	var msg uint8;
 	var quit bool;
 	var debug int; 
-	var routing_bit uint32;
-	
-	quit = false;
-	debug = 1 ;
-	routing_bit = (1 << col) ;
 
-	if (debug == 1) {fmt.Printf("%d,%d routing node started \n",col,row) };
-		
+	quit = false;
+	debug = 0 ;
+	
 	// while quit == false 	
 	for (quit == false) {
 		select {
-		case inputPkt = <- straight_in:    // read and input packet 
-			if (debug == 1) { fmt.Printf("---output node (%d) in-straight packet %s \n",row,inputPkt); } ;
+		case a = <- in1:       // read the inputs
+			b = <- in2;
+			value = a + Wn*b;  // this line is the main node computation
 
-			// if the routing bit matches the nodes position in the bit-mask, go straight
-			// else go on the cross link. 
-			if ( (inputPkt.path & routing_bit ) == (col & routing_bit) ) {
-				straight_out <- inputPkt;
-			} else {
-				cross_out <- inputPkt;
-			}
-			
-		case inputPkt = <- cross_in:  // read an input packet 
-			if (debug == 1) { fmt.Printf("---output node (%d) in-cross packet %s \n",row,inputPkt); } ;
-			
-			if ( (inputPkt.path & routing_bit ) == (col & routing_bit) ) {
-				straight_out <- inputPkt;
-			} else {
-				cross_out <- inputPkt;
-			}
-
+			if (debug == 1) {
+				fmt.Printf("----compute node (%d:%d) inputs %.3f + %.3f * %.3f = %.3f \n",col,row,a,Wn,b,value)
+			} ;
+			out1 <- value;    // write the outputs
+			if (col < (FFT_LOG-1)) { // last column only has 1 output channel 
+				out2 <- value;
+			};
 		case msg = <- control:
-			fmt.Printf("----output node (%d:%d) control message %d \n",col,row,msg)
-		switch msg {
-		case QUIT:
-			fmt.Printf("----output node (%d:%d) ending \n",col,row,msg)
-			quit = true; 
-			return ; 				
-		case DEBUG_ON:
-			debug = 1;
-		case DEBUG_OFF:
-			debug = 0;
-		default:
-			fmt.Printf("----output node (%d:%d) unknown message type %d \n",col,row,msg);
-		}; // end switch 
-			
-		}; // end select
+			fmt.Printf("----compute node (%d:%d) control message %d \n",col,row,msg)
+			switch msg {
+			case QUIT:
+				fmt.Printf("----compute node (%d:%d) ending \n",col,row,msg)
+				return ; 				
+			case DEBUG_ON:
+				debug = 1;
+			case DEBUG_OFF:
+				debug = 0;
+			default:
+				fmt.Printf("----compute node (%d:%d) unknown message type %d \n",col,row,msg)				
+			};
+
+		}; 
+
 	}; 
 } ;
 
-// an output takes 2 inputs and multiplexes them onto one output.
-func output_node(col uint32,row uint32, straight chan RouterPkt, cross chan RouterPkt, output chan RouterPkt, control chan uint8 ) {
-	var inputPkt RouterPkt;
-	var msg uint8;
-	var quit bool;
-	var debug int; 
+// set debugging, 1 is on, 0 is off 
+func message_all(fft *FFTarray, message uint8) {
+	var c, r int ;  // column and row 
+	for c = 0; c < int(FFT_LOG1) ; c++ {   // we have a log(fftsize) columns
+ 		for r = 0; r < int(FFT_VSIZE) ; r++ {  // vector size rows
+			fmt.Printf("sending message 0x%x to (%d:%d) \n",message,c,r)
+			fft.cntl_channels[c][r] <- message;
 
-	quit = false;
-	debug =1 ;
-	if (debug == 1) {fmt.Printf("%d,%d output node started \n",col,row) };
-
-	for (quit == false) {
-		select {
-		case inputPkt = <- straight:    // read and input packet 
-			if (debug == 1) { fmt.Printf("---output node (%d) in-straight packet %s \n",row,inputPkt); } ;
-			output <- inputPkt;    // write the outputs
-
-		case inputPkt = <- cross:  // read an input packet 
-			if (debug == 1) { fmt.Printf("---output node (%d) in-cross packet %s \n",row,inputPkt); } ;
-			output <- inputPkt;    // write the outputs
-		
-		case msg = <- control:
-			fmt.Printf("----output node (%d:%d) control message %d \n",col,row,msg)
-		switch msg {
-		case QUIT:
-			fmt.Printf("----output node (%d:%d) ending \n",col,row,msg)
-			quit = true; 
-			return ; 				
-		case DEBUG_ON:
-			debug = 1;
-		case DEBUG_OFF:
-			debug = 0;
-		default:
-			fmt.Printf("----output node (%d:%d) unknown message type %d \n",col,row,msg);
-		}; // end switch 
-			
-		}; // end select
-	}; // end for 
-}; // end function 
-
-// set debugging and other messages, 1 is on, 0 is off 
-func message_all(router *RouterState, message uint8) {
-	var c, r int ;  // column and row
-	for r = 0; r < int(ROUTER_ISIZE) ; r++ {  // vector size rows
-		for c = 0; c < int(ROUTER_DEPTH)+1 ; c++ {   // recall the lfsr nodes are the extra column
-			fmt.Printf("sending message 0x%x to node at (%d:%d) \n",message,c,r)
-			router.cntl_channels[c][r] <- message;
 		} ;
 	}; 
-};
-
-func create_router_state(router *RouterState) {
-	const ROUTER_CHANNELS uint32 = (ROUTER_NODES *2) + (ROUTER_ISIZE*2)
-	var butterfly,last_column,column uint32;   // we have 2 back-to-back butterflys, but they share a column
+	
+}; 
+func create_fft_array(fft *FFTarray) {
+	const FFT_CHANNELS uint32 = (FFT_NODES *2) + (FFT_VSIZE*2)
 	var r,c uint32; // the current column of row of the node to create
+	var reversed int   // bit reversed of input index row 
+	
+	var twiddle complex128  // twiddle factor for a compute node 
 
 	// these are use to compute the target row for the b_channel channels in the butterfly
 	var cross_distance_out uint32 ; // number of rows from current row
@@ -349,27 +204,25 @@ func create_router_state(router *RouterState) {
 	var channel1_out_id, channel2_out_id uint32
 	
 	// pointers to the channel in the channel arrays 
-	var channel1_in, channel2_in, channel1_out, channel2_out chan RouterPkt
+	var channel1_in, channel2_in, channel1_out, channel2_out chan complex128
 	
 	// make all the channels. The outer loop indexes the rows. The inner loop indexes the columns
 	// we can set the inputs and outputs by row in the first outer loop 
-	for r = 0; r < ROUTER_ISIZE ; r++ {
-		router.input_channels[r] =  make(chan RouterPkt);
-		router.random_num_channels[r] =  make(chan uint8);
-		router.output_channels[r] =  make(chan RouterPkt);
-		router.cntl_channels[ROUTER_DEPTH][r] = make(chan uint8);
-		
-		for c = 0; c < ROUTER_DEPTH-1; c++ {
-			router.straight_channels[c][r]= make(chan RouterPkt);
-			router.cross_channels[c][r]= make(chan RouterPkt);
-			router.cntl_channels[c][r] = make(chan uint8);
+	for r = 0; r < FFT_VSIZE ; r++ {
+		fft.input_channels[r] =  make(chan complex128);
+		fft.output_channels[r] =  make(chan complex128);
+		for c = 0; c < FFT_LOG ; c++ {
+			fft.a_channels[c][r]= make(chan complex128);
+			fft.b_channels[c][r]= make(chan complex128);
+			fft.cntl_channels[c][r] = make(chan uint8);
 		}
+		fft.cntl_channels[FFT_LOG][r] = make(chan uint8); // for the input split channels 
 	} ;
 
 	// this is the code that creates the butterfly using go routines and  channels 
-	// recall an N-input ROUTER butterfly has log N levels
-	// every level is a vector with a size. e.g. an 8 element ROUTER has 3 levels and each
-	// vector length is 8; a 16 input ROUTER has 4 levels and the number of nodes
+	// recall an N-input FFT butterfly has log N levels
+	// every level is a vector with a size. e.g. an 8 element FFT has 3 levels and each
+	// vector length is 8; a 16 input FFT has 4 levels and the number of nodes
 	// in each level/vector is 16
 	// We use this terminology to organize a butterfly as a 2D array
 	// each level (or stage) is a column and the vectors element number is the row
@@ -377,89 +230,90 @@ func create_router_state(router *RouterState) {
 	// the 0th column is the input and the LogNth column is the output
 	
 	// each node is a go-routine connected by channels
-	// loop for every level of the ROUTER, from outputs to inputs.
+	// loop for every level of the FFT, from outputs to inputs.
 	// and create the nodes with the right channel interconnect
 
-	// main loop to create routing nodes. For each column, for each row, create the node with
-	// Channels are organized into the straight channel set and cross channels set. 
-	// The straight channels are the 'upper' input in the ROUTER diagram, and the cross channels the 'lower' input
-	// A channel's c,r value addressed the input of a router node.  
+	// main loop to create compute nodes. For each column, for each row, create the node with
+	// Channels are organized into the A channel set and B channels set. 
+	// The A channels are the 'upper' input in the FFT diagram, and the B channels the 'lower' input
+	// A channel's c,r value addressed the input of a a compute node.  So compute node A and B input channels 
 
-	for butterfly = 0; butterfly < 2; butterfly ++ {  // for each
-		if (butterfly == 1) { last_column = ROUTER_LOG +1 ;} else { last_column = ROUTER_LOG; } ;
-		
-		for column = 0; column < last_column ; column++ {   // we have depth (depth = log+1 + log) column
-			c = column + (butterfly * ROUTER_LOG) // column in the back-to-back butterflys 
-			for r = 0; r < ROUTER_ISIZE ; r++ {  // input size rows 
+	for c = 0; c < FFT_LOG ; c++ {   // we have a log(fftsize) columns 
+		for r = 0; r < FFT_VSIZE ; r++ {  // vector size rows 
 
-				// get the distance from the current row to the target row for the cross input channel 
-				cross_distance_out = (1<< column)  // the output channel is one column to the right, so the distance is larger
-				// the value of the bit in the row number determines if the output offset is up or down
-				cross_bit_value_out = r & cross_distance_out
+			// get the distance from the current row to the target row for the cross input channel 
+			cross_distance_out = (1<<c)  // the output channel is one column to the right, so the distance is larger
+			// the value of the bit in the row number determines if the output offset is up or down
+			cross_bit_value_out = r & cross_distance_out
 			
-				// these are the output channel IDs for the straight and cross channels 
-				if (cross_bit_value_out == 0) {
-					cross_row_output = r + cross_distance_out
-					channel1_out_id = r
-					channel2_out_id = cross_row_output
-					
-					channel1_out = router.straight_channels[c][int(channel1_out_id)]
-					channel2_out = router.straight_channels[c][int(channel2_out_id)]
+			// these are the output channel IDs for the A and B channels 
+			if (cross_bit_value_out == 0) {
+				cross_row_output = r + cross_distance_out
+				channel1_out_id = r
+				channel2_out_id = cross_row_output
+
+				channel1_out = fft.a_channels[c][int(channel1_out_id)]
+				channel2_out = fft.a_channels[c][int(channel2_out_id)]
 				
-				} else {
-					cross_row_output = r - cross_distance_out
-					channel1_out_id = cross_row_output 
-					channel2_out_id = r
+			} else {
+				cross_row_output = r - cross_distance_out
+				channel1_out_id = cross_row_output 
+				channel2_out_id = r
 
-					channel1_out = router.cross_channels[c][int(channel1_out_id)]
-					channel2_out = router.cross_channels[c][int(channel2_out_id)]
-				}
-
-				if (c == 0) {  // input nodes
-					go lfsr3(r,uint16(r), router.random_num_channels[r], router.cntl_channels[ROUTER_DEPTH][int(r)]);
-					go input_node(c,r,router.random_num_channels[r],router.input_channels[r],channel1_out,channel2_out,router.cntl_channels[0][r]) ;
-
-				} else if (butterfly == 2) && (c == (ROUTER_LOG+1)) {
-					// last layer needs output nodes 
-					channel1_in = router.straight_channels[c][int(r)]
-					channel2_in = router.cross_channels[c][int(r)]				
-					go output_node(c,r,channel1_in,channel2_in,router.output_channels[r],router.cntl_channels[c+1][r])
-				} else { 
-					// routerlayers
-					channel1_in = router.straight_channels[c][int(r)]
-					channel2_in = router.cross_channels[c][int(r)]
-					go routing_node(c,r,channel1_in,channel2_in,channel1_out,channel2_out,router.cntl_channels[c][r]) 
-				}
+				channel1_out = fft.b_channels[c][int(channel1_out_id)]
+				channel2_out = fft.b_channels[c][int(channel2_out_id)]
 			}
-		}; // end for compute nodes
-	} // end for each butterfly 
+
+			// logic to set the output nodes 
+			if (c == 0) {  // the first layer needs input nodes
+				reversed = bitrev(int(r),int(FFT_LOG));				
+				go input_node(r,fft.input_channels[reversed],channel1_out,channel2_out,fft.cntl_channels[0][r]) at (c,r) ;
+			} else { // compute layers
+				twiddle = compute_twiddle_factor(c-1,r)
+				channel1_in = fft.a_channels[c-1][int(r)]
+				channel2_in = fft.b_channels[c-1][int(r)]
+				go compute_node(c-1,r,channel1_in,channel2_in,channel1_out,channel2_out,twiddle,fft.cntl_channels[c][r]) at (c,r); 
+			}
+			// last layer needs output nodes 
+			if (c == (FFT_LOG-1)) {
+				twiddle = compute_twiddle_factor(c,r)
+				channel1_in = fft.a_channels[c][int(r)]
+				channel2_in = fft.b_channels[c][int(r)]				
+				go compute_node(c,r,channel1_in,channel2_in,fft.output_channels[r],nil,twiddle,fft.cntl_channels[c+1][r])
+			}
+		}
+	}; // end for compute nodes
 }
 
-// write a bunch of packets to the inputs 
-func write_inputs(router *RouterState,iterations int,printIt bool) {
-	var i int ; 
-	var inputPkt RouterPkt;
+func write_inputs(fft *FFTarray,iterations int,printIt bool) {
+	var i,d int ; 
+	var value complex128;
+
 	for i =0; i< iterations; i++ {
-		for j, _ := range router.output_channels {
-			inputPkt.dest_port = uint16((uint32(j) % ROUTER_ISIZE)); 
-			router.input_channels[j] <- inputPkt ;
+		for j, _ := range fft.output_channels {
+			d = j & 0xF
+			if ((j&11) == 0) {
+				value = complex(float64(d),float64(d)) ;
+			} else {
+				value = complex(float64(d),-1.0*float64(d)); 
+			} ;
+			fft.input_channels[j] <- value ;
 			if printIt {
-				fmt.Printf("input: sent %d val %s \n",j,inputPkt);
+				fmt.Printf("input: sent %d val %.3f \n",j,value);
 			} ;
 		}; 
 	} ; 
-
 }; 
-// read packets from the outputs 
-func read_outputs(router *RouterState,iterations int,printIt bool,done chan bool) {
+
+func read_outputs(fft *FFTarray,iterations int,printIt bool,done chan bool) {
 	var i int ; 
-	var outputPkt RouterPkt;
+	var value complex128;
 
 	for i =0; i< iterations; i++ {
-		for j, _ := range router.output_channels {
-			outputPkt = <- router.output_channels[j] ;
+		for j, _ := range fft.output_channels {
+			value = <- fft.output_channels[j] ;
 			if printIt {
-				fmt.Printf("output: %d got val %s\n",i,outputPkt);
+				fmt.Printf("output: %d got val %.3f \n",i,value);
 			} ;
 		} ;
 	}  ;
@@ -467,7 +321,7 @@ func read_outputs(router *RouterState,iterations int,printIt bool,done chan bool
 }
 
 func main() {
-	var router *RouterState;       // holds the array of channels 
+	var fft *FFTarray;       // holds the array of channels 
 	var goProcsFlag_p *int ; // flag pointer to set number of procs 
 	var debugFlag_p *bool ;  // debug flag pointer   
 	var iterations_p *int;   // number of iterations to warm up the cache 
@@ -484,6 +338,10 @@ func main() {
 	iterations_p = flag.Int("i",1,"set iterations") ; 
 	flag.Parse() ; 
 
+	if (1==1) {
+		os.Exit(-1); 
+	}
+	
 	procsFlag = *goProcsFlag_p;
 	debugFlag = *debugFlag_p;
 	iterations = *iterations_p;
@@ -491,30 +349,25 @@ func main() {
 	// get the maximum number of go processes to use from the arguments
 	runtime.GOMAXPROCS(procsFlag) ; 
 	
-	router = new(RouterState); 
-	create_router_state(router);
+	fft = new(FFTarray); 
+	create_fft_array(fft);
 	doneChan = make(chan bool,1) ;
 
 	// send a debugging message to all the channels 
 	if (debugFlag == true) { 
-		message_all(router,DEBUG_ON) ;
+		message_all(fft,DEBUG_ON) ;
 	} ;
 
-	time.Sleep(3);
-	os.Exit(1);
-	done = <- doneChan ;
-
-	
 	// warm up
-	write_inputs(router,1,false);
-	read_outputs(router, 1,false,doneChan);
+	write_inputs(fft,1,false);
+	read_outputs(fft, 1,false,doneChan);
 	done = <- doneChan ; 
 	
 	start_time := time.Now().UnixNano() ; 
 	tsc := gotsc.TSCOverhead()  ; 
 	start := gotsc.BenchStart() ; 
-	go read_outputs(router,iterations,false,doneChan)  ; 
-	go write_inputs(router,iterations,false);
+	go read_outputs(fft,iterations,false,doneChan)  ; 
+	go write_inputs(fft,iterations,false);
 	done = <- doneChan ; 
 	
 	end := gotsc.BenchEnd()  ; 
@@ -524,26 +377,6 @@ func main() {
 	avg := (end - start - tsc) ; 
 	//fmt.Println("TSC Overhead:", tsc)
 	//fmt.Println("Cycles:", avg)
-	fmt.Printf("%d,%d,%d,%d,%d,%t\n",ROUTER_ISIZE,iterations,procsFlag,avg,lapsed_nano,done);
-
-	os.Exit(1);
+	fmt.Printf("%d,%d,%d,%d,%d,%t\n",FFT_VSIZE,iterations,procsFlag,avg,lapsed_nano,done);
 } ;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
