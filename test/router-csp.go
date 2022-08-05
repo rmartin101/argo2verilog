@@ -48,7 +48,7 @@ import ("fmt");
 import ("runtime");
 import ("flag");
 import ("time");
-import ("os") ; 
+import ("os") ;
 import ("github.com/dterei/gotsc");
 
 // make an array of channels 
@@ -79,7 +79,7 @@ type RouterPkt struct {
 } 
 
 // constants that define the size of router. The router log is the base-2 log of the number of inputs
-const ROUTER_LOG uint32 = 3 ;  // log (base 2) of the number of inputs/outputs
+const ROUTER_LOG uint32 = 2 ;  // log (base 2) of the number of inputs/outputs
 const ROUTER_LOG1 uint32 = (ROUTER_LOG+1)  // the nubmber of stages/columns of the first butterfly with the input column
 const ROUTER_ISIZE uint32 = (1<<ROUTER_LOG) ;  // number of inputs to the router
 const ROUTER_DEPTH uint32 = ((ROUTER_LOG1) + (ROUTER_LOG)) // depth in number of nodes
@@ -103,14 +103,16 @@ type RouterState struct {
 
 // a linear feedback shift register used for generating a psuedo-random sequence of 0s or 1s .
 // the stream of 0/1s is put on an output channel.
-func lfsr3(seed uint16, sequence chan uint8, control chan uint8) {
+func lfsr3(row uint32, seed uint16, sequence chan uint8, control chan uint8) {
 	var lfsr uint16;  // the linear feedback shift register
 	var value uint16; 
 	var stop bool;
 	var msg uint8;    // control message 
 	var debug int;
 
-	debug = 0;
+	debug =1 ;
+	if (debug == 1) {fmt.Printf("%d,0 lfsr node started \n",row) };
+	
 	stop = false ;
 	for stop != true {
 		select {
@@ -161,8 +163,9 @@ func input_node(col uint32, row uint32, rand_input chan uint8, in chan RouterPkt
 	
 	// starting position of the linear feedback shift register 
 	const my_column = 0;
-	
 	quit = false;
+	debug =1 ;
+	if (debug == 1) {fmt.Printf("%d,%d input node started \n",col,row) };
 	// while quit == false 	
 	for (quit == false) {
 		// poll the control channel
@@ -234,9 +237,10 @@ func routing_node(col uint32,row uint32, straight_in chan RouterPkt, cross_in ch
 	var routing_bit uint32;
 	
 	quit = false;
-	debug = 0 ;
+	debug = 1 ;
 	routing_bit = (1 << col) ;
-	
+
+	if (debug == 1) {fmt.Printf("%d,%d routing node started \n",col,row) };
 		
 	// while quit == false 	
 	for (quit == false) {
@@ -288,7 +292,9 @@ func output_node(col uint32,row uint32, straight chan RouterPkt, cross chan Rout
 	var debug int; 
 
 	quit = false;
-	debug = 0 ;
+	debug =1 ;
+	if (debug == 1) {fmt.Printf("%d,%d output node started \n",col,row) };
+
 	for (quit == false) {
 		select {
 		case inputPkt = <- straight:    // read and input packet 
@@ -331,8 +337,9 @@ func message_all(router *RouterState, message uint8) {
 
 func create_router_state(router *RouterState) {
 	const ROUTER_CHANNELS uint32 = (ROUTER_NODES *2) + (ROUTER_ISIZE*2)
+	var butterfly,last_column,column uint32;   // we have 2 back-to-back butterflys, but they share a column
 	var r,c uint32; // the current column of row of the node to create
-	
+
 	// these are use to compute the target row for the b_channel channels in the butterfly
 	var cross_distance_out uint32 ; // number of rows from current row
 	var cross_bit_value_out uint32;  // direction 0=decreasing (up) 1=down
@@ -378,49 +385,57 @@ func create_router_state(router *RouterState) {
 	// The straight channels are the 'upper' input in the ROUTER diagram, and the cross channels the 'lower' input
 	// A channel's c,r value addressed the input of a router node.  
 
-	for c = 0; c < ROUTER_LOG ; c++ {   // we have depth (depth = log+1 + log) columns 
-		for r = 0; r < ROUTER_ISIZE ; r++ {  // input size rows 
+	for butterfly = 0; butterfly < 2; butterfly ++ {  // for each
+		if (butterfly == 1) { last_column = ROUTER_LOG +1 ;} else { last_column = ROUTER_LOG; } ;
+		
+		for column = 0; column < last_column ; column++ {   // we have depth (depth = log+1 + log) column
+			c = column + (butterfly * ROUTER_LOG) // column in the back-to-back butterflys 
+			for r = 0; r < ROUTER_ISIZE ; r++ {  // input size rows 
 
-			// get the distance from the current row to the target row for the cross input channel 
-			cross_distance_out = (1<<c)  // the output channel is one column to the right, so the distance is larger
-			// the value of the bit in the row number determines if the output offset is up or down
-			cross_bit_value_out = r & cross_distance_out
+				// get the distance from the current row to the target row for the cross input channel 
+				cross_distance_out = (1<< column)  // the output channel is one column to the right, so the distance is larger
+				// the value of the bit in the row number determines if the output offset is up or down
+				cross_bit_value_out = r & cross_distance_out
 			
-			// these are the output channel IDs for the straight and cross channels 
-			if (cross_bit_value_out == 0) {
-				cross_row_output = r + cross_distance_out
-				channel1_out_id = r
-				channel2_out_id = cross_row_output
-
-				channel1_out = router.straight_channels[c][int(channel1_out_id)]
-				channel2_out = router.straight_channels[c][int(channel2_out_id)]
+				// these are the output channel IDs for the straight and cross channels 
+				if (cross_bit_value_out == 0) {
+					cross_row_output = r + cross_distance_out
+					channel1_out_id = r
+					channel2_out_id = cross_row_output
+					
+					channel1_out = router.straight_channels[c][int(channel1_out_id)]
+					channel2_out = router.straight_channels[c][int(channel2_out_id)]
 				
-			} else {
-				cross_row_output = r - cross_distance_out
-				channel1_out_id = cross_row_output 
-				channel2_out_id = r
+				} else {
+					cross_row_output = r - cross_distance_out
+					channel1_out_id = cross_row_output 
+					channel2_out_id = r
 
-				channel1_out = router.cross_channels[c][int(channel1_out_id)]
-				channel2_out = router.cross_channels[c][int(channel2_out_id)]
-			}
+					channel1_out = router.cross_channels[c][int(channel1_out_id)]
+					channel2_out = router.cross_channels[c][int(channel2_out_id)]
+				}
 
-			// logic to set the output nodes 
-			if (c < (ROUTER_LOG-1)) {  // the first layer needs input nodes
-				// routerlayers
-				channel1_in = router.straight_channels[c-1][int(r)]
-				channel2_in = router.cross_channels[c-1][int(r)]
-				go routing_node(c-1,r,channel1_in,channel2_in,channel1_out,channel2_out,router.cntl_channels[c][r]) 
+				if (c == 0) {  // input nodes
+					go lfsr3(r,uint16(r), router.random_num_channels[r], router.cntl_channels[ROUTER_DEPTH][int(r)]);
+					go input_node(c,r,router.random_num_channels[r],router.input_channels[r],channel1_out,channel2_out,router.cntl_channels[0][r]) ;
+
+				} else if (butterfly == 2) && (c == (ROUTER_LOG+1)) {
+					// last layer needs output nodes 
+					channel1_in = router.straight_channels[c][int(r)]
+					channel2_in = router.cross_channels[c][int(r)]				
+					go output_node(c,r,channel1_in,channel2_in,router.output_channels[r],router.cntl_channels[c+1][r])
+				} else { 
+					// routerlayers
+					channel1_in = router.straight_channels[c][int(r)]
+					channel2_in = router.cross_channels[c][int(r)]
+					go routing_node(c,r,channel1_in,channel2_in,channel1_out,channel2_out,router.cntl_channels[c][r]) 
+				}
 			}
-			// last layer needs output nodes 
-			if (c == (ROUTER_LOG-1)) {
-				channel1_in = router.straight_channels[c][int(r)]
-				channel2_in = router.cross_channels[c][int(r)]				
-				go routing_node(c,r,channel1_in,channel2_in,router.output_channels[r],nil,router.cntl_channels[c+1][r])
-			}
-		}
-	}; // end for compute nodes
+		}; // end for compute nodes
+	} // end for each butterfly 
 }
 
+// write a bunch of packets to the inputs 
 func write_inputs(router *RouterState,iterations int,printIt bool) {
 	var i int ; 
 	var inputPkt RouterPkt;
@@ -435,7 +450,7 @@ func write_inputs(router *RouterState,iterations int,printIt bool) {
 	} ; 
 
 }; 
-
+// read packets from the outputs 
 func read_outputs(router *RouterState,iterations int,printIt bool,done chan bool) {
 	var i int ; 
 	var outputPkt RouterPkt;
@@ -485,6 +500,11 @@ func main() {
 		message_all(router,DEBUG_ON) ;
 	} ;
 
+	time.Sleep(3);
+	os.Exit(1);
+	done = <- doneChan ;
+
+	
 	// warm up
 	write_inputs(router,1,false);
 	read_outputs(router, 1,false,doneChan);
@@ -508,4 +528,22 @@ func main() {
 
 	os.Exit(1);
 } ;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
