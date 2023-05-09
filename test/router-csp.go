@@ -117,18 +117,17 @@ func lfsr3(row uint32, seed uint16, sequence chan uint8, control chan uint8) {
 	for stop != true {
 		select {
 		case msg = <- control:
-			if (debug ==1) { fmt.Printf("----lfsr3 (%d) control message %d \n",seed,msg) }; 
+			if (debug ==1) { fmt.Printf("----lfsr3 %d (%d) control message %d \n",row,seed,msg) }; 
 			switch msg {
 			case QUIT:
-				if (debug ==1) {fmt.Printf("----lfsr3 node (%d) ending \n",seed,msg)}; 
+				if (debug ==1) {fmt.Printf("----lfsr3 node %d (%d) ending \n",row,seed,msg)}; 
 				stop = true;
-				return ; 				
 			case DEBUG_ON:
 				debug = 1;
 			case DEBUG_OFF:
 				debug = 0;
 			default:
-				fmt.Printf("----lfsr node (%d) unknown message type %d \n",seed,msg)
+				fmt.Printf("----lfsr node %d (%d) unknown message type %d \n",row,seed,msg)
 			} ;
 		default: 
 			//shifts
@@ -416,18 +415,22 @@ func create_router_state(router *RouterState) {
 				}
 
 				if (c == 0) {  // input nodes
+					fmt.Printf("%d_%d starting lfsr \n",r,ROUTER_DEPTH,r);
 					go lfsr3(r,uint16(r), router.random_num_channels[r], router.cntl_channels[ROUTER_DEPTH][int(r)]);
+					fmt.Printf("%d_%d starting input node \n",0,r);
 					go input_node(c,r,router.random_num_channels[r],router.input_channels[r],channel1_out,channel2_out,router.cntl_channels[0][r]) ;
 
 				} else if (butterfly == 2) && (c == (ROUTER_LOG+1)) {
 					// last layer needs output nodes 
 					channel1_in = router.straight_channels[c][int(r)]
-					channel2_in = router.cross_channels[c][int(r)]				
+					channel2_in = router.cross_channels[c][int(r)]
+					fmt.Printf("%d_%d starting output node \n",c,r);
 					go output_node(c,r,channel1_in,channel2_in,router.output_channels[r],router.cntl_channels[c+1][r])
 				} else { 
 					// routerlayers
 					channel1_in = router.straight_channels[c][int(r)]
 					channel2_in = router.cross_channels[c][int(r)]
+					fmt.Printf("%d_%d starting router node \n",c,r);
 					go routing_node(c,r,channel1_in,channel2_in,channel1_out,channel2_out,router.cntl_channels[c][r]) 
 				}
 			}
