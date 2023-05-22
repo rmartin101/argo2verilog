@@ -111,7 +111,7 @@ func lfsr3(row uint32, seed uint16, sequence chan uint8, control chan uint8) {
 	var debug int;
 
 	debug =1 ;
-	if (debug == 1) {fmt.Printf("%d,0 lfsr node started \n",row) };
+	if (debug == 1) {fmt.Printf("%d,0 lfsr node %x started \n",row, sequence) };
 	
 	stop = false ;
 	for stop != true {
@@ -164,7 +164,7 @@ func input_node(col uint32, row uint32, rand_input chan uint8, in chan RouterPkt
 	const my_column = 0;
 	quit = false;
 	debug =1 ;
-	if (debug == 1) {fmt.Printf("%d,%d input node started input %x\n",col,row,in) };
+	if (debug == 1) {fmt.Printf("%d,%d input node started rand:%x input:%x straight:%x cross:%x\n",col,row,rand_input,in,straight,cross) };
 	// while quit == false 	
 	for (quit == false) {
 		// poll the control channel
@@ -239,7 +239,7 @@ func routing_node(col uint32,row uint32, straight_in chan RouterPkt, cross_in ch
 	debug = 1 ;
 	routing_bit = (1 << col) ;
 
-	if (debug == 1) {fmt.Printf("%d,%d routing node started \n",col,row) };
+	if (debug == 1) {fmt.Printf("%d,%d routing node started straight_in:%x cross_in:%x straight_out:%x cross_out:%x \n",col,row,straight_in,cross_in,straight_out, cross_out) }; 
 		
 	// while quit == false 	
 	for (quit == false) {
@@ -292,7 +292,7 @@ func output_node(col uint32,row uint32, straight chan RouterPkt, cross chan Rout
 
 	quit = false;
 	debug =1 ;
-	if (debug == 1) {fmt.Printf("%d,%d output node started \n",col,row) };
+	if (debug == 1) {fmt.Printf("%d,%d output node started straight:%x cross:%x output:%x\n",col,row, straight, cross, output) };
 
 	for (quit == false) {
 		select {
@@ -350,6 +350,9 @@ func create_router_state(router *RouterState) {
 	// pointers to the channel in the channel arrays 
 	var channel1_in, channel2_in, channel1_out, channel2_out chan RouterPkt; 
 
+	last_column = ROUTER_DEPTH;
+	mid_column = ROUTER_LOG ;
+
 	// make all the channels. The outer loop indexes the rows. The inner loop indexes the columns
 	// we can set the inputs and outputs by row in the first outer loop 
 	for r = 0; r < ROUTER_ISIZE ; r++ {
@@ -362,30 +365,35 @@ func create_router_state(router *RouterState) {
 			router.straight_channels[c][r]= make(chan RouterPkt);
 			router.cross_channels[c][r]= make(chan RouterPkt);
 			router.cntl_channels[c][r] = make(chan uint8);
-			fmt.Printf("c is %d r is  %d \n",c,r);	
 		} ;
 	} ;
 
-	// this is the code that creates the butterfly using go routines and  channels 
-	// recall an N-input ROUTER butterfly has log N levels
+	// This nested loop creates the butterfly using go routines and channels.
+	// Recall an N-input ROUTER butterfly has log N levels
 	// every level is a vector with a size. e.g. an 8 element ROUTER has 3 levels and each
 	// vector length is 8; a 16 input ROUTER has 4 levels and the number of nodes
-	// in each level/vector is 16
-	// We use this terminology to organize a butterfly as a 2D array
-	// each level (or stage) is a column and the vectors element number is the row
-	// So a node is defined as a column-major array with nodes labeled as (c,r)
-	// the 0th column is the input and the LogNth column is the output
+	// in each level/vector is 16.
+	// 
+	// We use a 2D terminology to organize a butterfly as a 2D array.
+	// Each level (or stage) is a column and the vectors element number is the row
+	// So a node is defined as a column-major array with nodes labeled as column, row (c,r).
+	// the 0th column is the input and the LogNth column is the output.
+	// Thus there is an outer loop for the columns and inner loop for the rows. 
+	// Data in the butterfly flows from left to right.
 	
-	// each node is a go-routine connected by channels
-	// loop for every level of the ROUTER, from outputs to inputs.
+	// For a network router, we have 2 back-to-back butterflys that share a column to form a Benes network.
+	// The 2nd butterfly is reversed from the first. The variable mid_column defines the shared column.
+	// the cross distance is subtracted from the final column as it has to work
+	// in reverse from the forward direction. 
+	
+	// A node is realized as a go-routine connected by channels. 
+	// The loops run for every level of the router, from outputs to inputs.
 	// and create the nodes with the right channel interconnect
 
-	// main loop to create routing nodes. For each column, for each row, create the node with
 	// Channels are organized into the straight channel set and cross channels set. 
 	// The straight channels are the 'upper' input in the ROUTER diagram, and the cross channels the 'lower' input
-	// A channel's c,r value addressed the input of a router node.  
-	last_column = ROUTER_DEPTH;
-	mid_column = ROUTER_LOG ;
+	// A channel's c,r value addressed the input of a router node.
+	
 	for column = 0; column < last_column ; column++ {   // we have depth (depth = log+1 + log) column
 		c = column; 
 		for r = 0; r < ROUTER_ISIZE ; r++ {  // input size rows 
@@ -403,37 +411,35 @@ func create_router_state(router *RouterState) {
 			// these are the output channel IDs for the straight and cross channels 
 			if (cross_bit_value_out == 0) {
 				cross_row_output = r + cross_distance_out ;
-				channel1_out_id = r  ; 
-				channel2_out_id = cross_row_output ; 
-					
-				channel1_out = router.straight_channels[c][int(channel1_out_id)] ;
-				channel2_out = router.straight_channels[c][int(channel2_out_id)] ;
-				
 			} else {
-				cross_row_output = r - cross_distance_out
-				channel1_out_id = cross_row_output 
-				channel2_out_id = r
-				
-				channel1_out = router.cross_channels[c][int(channel1_out_id)]
-				channel2_out = router.cross_channels[c][int(channel2_out_id)]
+				cross_row_output = r - cross_distance_out ; 
 			}
+			channel1_out_id = r  ; 
+			channel2_out_id = cross_row_output ; 
 
-			if (column == 0) {  // input nodes
+			fmt.Printf("Loop %d_%d starting straight:%d cross:%d dist:%d \n", column,r,channel1_out_id,channel2_out_id,cross_distance_out);
+			channel1_out = router.straight_channels[c][int(channel1_out_id)] ;
+			channel2_out = router.cross_channels[c][int(channel2_out_id)] ;
+				
+
+			// Check which node types to create in this loop iteration. Each node in the butterfly is a goroutine. 
+			// There are inputs, outputs, and routing nodes. Each node type has different channel connections. 
+			if (column == 0) {  // first layer is input nodes 
 				fmt.Printf("%d_%d starting lfsr \n",ROUTER_DEPTH,r);
 				go lfsr3(r,uint16(r), router.random_num_channels[r], router.cntl_channels[ROUTER_DEPTH][int(r)]);
 				fmt.Printf("%d_%d starting input node \n",0,r);
 				go input_node(c,r,router.random_num_channels[r],router.input_channels[r],channel1_out,channel2_out,router.cntl_channels[0][r]) ;
 
-			} else if (column == ROUTER_LOG+1) {
-				// last layer needs output nodes 
-				channel1_in = router.straight_channels[c][int(r)]
-				channel2_in = router.cross_channels[c][int(r)]
+			} else if (column == (last_column-1))  {
+				// last layer needs output nodes with 2 inputs, 1 output 
+				channel1_in = router.straight_channels[c-1][int(r)]
+				channel2_in = router.cross_channels[c-1][int(r)]
 				fmt.Printf("%d_%d starting output node \n",c,r);
 				go output_node(c,r,channel1_in,channel2_in,router.output_channels[r],router.cntl_channels[c+1][r])
 			} else { 
-				// routerlayers
-				channel1_in = router.straight_channels[c][int(r)]
-				channel2_in = router.cross_channels[c][int(r)]
+				// interior nodes are routers with 2 inputs, 2 outputs 
+				channel1_in = router.straight_channels[c-1][int(r)]
+				channel2_in = router.cross_channels[c-1][int(r)]
 				fmt.Printf("%d_%d starting router node \n",c,r);
 				go routing_node(c,r,channel1_in,channel2_in,channel1_out,channel2_out,router.cntl_channels[c][r]) 
 			}
@@ -507,9 +513,8 @@ func main() {
 	} ;
 
 	time.Sleep(3);
-	os.Exit(1);
-	done = <- doneChan ;
-
+	//os.Exit(1);
+	//done = <- doneChan ;
 	
 	// warm up
 	write_inputs(router,1,false);
