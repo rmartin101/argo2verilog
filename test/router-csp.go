@@ -114,6 +114,7 @@ func lfsr3(row uint32, seed uint16, sequence chan uint8, control chan uint8) {
 	if (debug == 1) {fmt.Printf("%d,0 lfsr node %x started \n",row, sequence) };
 	
 	stop = false ;
+	lfsr = seed;
 	for stop != true {
 		select {
 		case msg = <- control:
@@ -134,7 +135,9 @@ func lfsr3(row uint32, seed uint16, sequence chan uint8, control chan uint8) {
 			lfsr ^= lfsr >> 7 ; // shift 7 bits right
 			lfsr ^= lfsr << 9 ;  // shift 9 bits left
 			lfsr ^= lfsr >> 13 ; // shift 13 bits right
-		
+
+			fmt.Printf("lfsr is x%x \n",lfsr);
+			
 			//adds last bit to the output channel 
 			value = lfsr & 1 ;
 			if (value == 0) {
@@ -172,7 +175,14 @@ func input_node(col uint32, row uint32, rand_input chan uint8, in chan RouterPkt
 		case inputPkt = <- in:  // read a single input packet
 
 			// create a path to a central node in the butterfly using random bits 
-			rand_path = 0; 
+			rand_path = 0;
+							
+			fmt.Printf("test lfsr: ");
+			for i =0; i< 48; i++ {
+				rand_bit = uint16(<- rand_input);  // get the next bit from the LFSR channel
+				fmt.Printf(":%x:",rand_bit);
+			}
+			fmt.Printf("\n");
 			for i =0; i< int(ROUTER_LOG); i++ {
 				rand_bit = uint16(<- rand_input);  // get the next bit from the LFSR channel 
 				rand_path = ((rand_bit & 0x1 ) << i) | rand_path;   // add it to the path 
@@ -191,8 +201,13 @@ func input_node(col uint32, row uint32, rand_input chan uint8, in chan RouterPkt
 				}
 			}
 
+
+			
 			// the full path is the random path followed by the final destination 
 			inputPkt.path = uint32(rand_path)<<16 | uint32(dest_path); 			
+
+			fmt.Printf("----dest %d rand x%x path x%x \n",dest_port,rand_path,dest_path);
+			
 			
 			if (debug == 1) { 
 				fmt.Printf("----input node (%d) got input %s rand_path %x dest_path %x\n",row,inputPkt,rand_path,dest_path);
@@ -245,7 +260,7 @@ func routing_node(col uint32,row uint32, straight_in chan RouterPkt, cross_in ch
 	for (quit == false) {
 		select {
 		case inputPkt = <- straight_in:    // read and input packet 
-			if (debug == 1) { fmt.Printf("---output node (%d) in-straight packet %s \n",row,inputPkt); } ;
+			if (debug == 1) { fmt.Printf("---routing node (%d_%d) in-straight packet %x \n",col,row,inputPkt); } ;
 
 			// if the routing bit matches the nodes position in the bit-mask, go straight
 			// else go on the cross link. 
@@ -256,7 +271,7 @@ func routing_node(col uint32,row uint32, straight_in chan RouterPkt, cross_in ch
 			}
 			
 		case inputPkt = <- cross_in:  // read an input packet 
-			if (debug == 1) { fmt.Printf("---output node (%d) in-cross packet %s \n",row,inputPkt); } ;
+			if (debug == 1) { fmt.Printf("---routing node (%d_%d) in-cross packet %x \n",col,row,inputPkt); } ;
 			
 			if ( (inputPkt.path & routing_bit ) == (col & routing_bit) ) {
 				straight_out <- inputPkt;
@@ -265,10 +280,10 @@ func routing_node(col uint32,row uint32, straight_in chan RouterPkt, cross_in ch
 			}
 
 		case msg = <- control:
-			fmt.Printf("----output node (%d:%d) control message %d \n",col,row,msg)
+			fmt.Printf("----routing node (%d:%d) control message %d \n",col,row,msg)
 		switch msg {
 		case QUIT:
-			fmt.Printf("----output node (%d:%d) ending \n",col,row,msg)
+			fmt.Printf("----routing node (%d:%d) ending \n",col,row,msg)
 			quit = true; 
 			return ; 				
 		case DEBUG_ON:
@@ -276,7 +291,7 @@ func routing_node(col uint32,row uint32, straight_in chan RouterPkt, cross_in ch
 		case DEBUG_OFF:
 			debug = 0;
 		default:
-			fmt.Printf("----output node (%d:%d) unknown message type %d \n",col,row,msg);
+			fmt.Printf("----routing node (%d:%d) unknown message type %d \n",col,row,msg);
 		}; // end switch 
 			
 		}; // end select
@@ -297,11 +312,11 @@ func output_node(col uint32,row uint32, straight chan RouterPkt, cross chan Rout
 	for (quit == false) {
 		select {
 		case inputPkt = <- straight:    // read and input packet 
-			if (debug == 1) { fmt.Printf("---output node (%d) in-straight packet %s \n",row,inputPkt); } ;
+			if (debug == 1) { fmt.Printf("---output node (%d_%d) in-straight packet %x \n",col,row,inputPkt); } ;
 			output <- inputPkt;    // write the outputs
 
 		case inputPkt = <- cross:  // read an input packet 
-			if (debug == 1) { fmt.Printf("---output node (%d) in-cross packet %s \n",row,inputPkt); } ;
+			if (debug == 1) { fmt.Printf("---output node (%d_%d) in-cross packet %x \n",col,row,inputPkt); } ;
 			output <- inputPkt;    // write the outputs
 		
 		case msg = <- control:
@@ -426,7 +441,7 @@ func create_router_state(router *RouterState) {
 			// There are inputs, outputs, and routing nodes. Each node type has different channel connections. 
 			if (column == 0) {  // first layer is input nodes 
 				fmt.Printf("%d_%d starting lfsr \n",ROUTER_DEPTH,r);
-				go lfsr3(r,uint16(r), router.random_num_channels[r], router.cntl_channels[ROUTER_DEPTH][int(r)]);
+				go lfsr3(r,uint16(r+(1<<r)|101),router.random_num_channels[r], router.cntl_channels[ROUTER_DEPTH][int(r)]);
 				fmt.Printf("%d_%d starting input node \n",0,r);
 				go input_node(c,r,router.random_num_channels[r],router.input_channels[r],channel1_out,channel2_out,router.cntl_channels[0][r]) ;
 
@@ -456,10 +471,14 @@ func write_inputs(router *RouterState,iterations int,printIt bool) {
 			inputPkt.dest_port = uint16((uint32(j) % ROUTER_ISIZE)); 
 			router.input_channels[j] <- inputPkt ;
 			if printIt {
-				fmt.Printf("input: sent %d val %s \n",j,inputPkt);
+				fmt.Printf("write_input: sent %d val %x \n",j,inputPkt);
 			} ;
 		}; 
-	} ; 
+	} ;
+
+	if printIt {
+		fmt.Printf("write_input: done with input \n");
+	}
 
 }; 
 // read packets from the outputs 
@@ -469,9 +488,10 @@ func read_outputs(router *RouterState,iterations int,printIt bool,done chan bool
 
 	for i =0; i< iterations; i++ {
 		for j, _ := range router.output_channels {
+			fmt.Printf("read_outputs: about to read channel %d \n " ,j);
 			outputPkt = <- router.output_channels[j] ;
 			if printIt {
-				fmt.Printf("output: %d got val %s\n",i,outputPkt);
+				fmt.Printf("read_outputs: %d got val %s\n",j,outputPkt);
 			} ;
 		} ;
 	}  ;
@@ -517,8 +537,8 @@ func main() {
 	//done = <- doneChan ;
 	
 	// warm up
-	write_inputs(router,1,false);
-	read_outputs(router, 1,false,doneChan);
+	write_inputs(router,1,true);
+	read_outputs(router, 1,true,doneChan);
 	done = <- doneChan ; 
 	
 	start_time := time.Now().UnixNano() ; 
